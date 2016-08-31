@@ -1,0 +1,29 @@
+From ba2e3602b66204c491e780d66630570cec465831 Mon Sep 17 00:00:00 2001
+From: Fabien Dessenne <fabien.dessenne@st.com>
+Date: Tue, 3 Jun 2014 11:16:24 +0200
+Subject: [PATCH 2/3] modetest: use SMPTE pattern as cursor
+
+Change-Id: I92e82aa873896dd487ecd2571fbff5d8f04160ae
+Signed-off-by: Fabien Dessenne <fabien.dessenne@st.com>
+Reviewed-on: https://gerrit.st.com/46618
+Reviewed-by: Christophe PRIOUZEAU <christophe.priouzeau@st.com>
+---
+ tests/modetest/modetest.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/tests/modetest/modetest.c b/tests/modetest/modetest.c
+index af8740d..49bbf93 100644
+--- a/tests/modetest/modetest.c
++++ b/tests/modetest/modetest.c
+@@ -1205,7 +1205,7 @@ static void set_cursors(struct device *dev, struct pipe_arg *pipes, unsigned int
+ 	 * translucent alpha
+ 	 */
+ 	bo = bo_create(dev->fd, DRM_FORMAT_ARGB8888, cw, ch, handles, pitches,
+-		       offsets, PATTERN_PLAIN);
++		       offsets, PATTERN_SMPTE);
+ 	if (bo == NULL)
+ 		return;
+ 
+-- 
+1.9.1
+

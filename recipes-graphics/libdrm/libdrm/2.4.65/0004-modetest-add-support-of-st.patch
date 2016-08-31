@@ -1,0 +1,26 @@
+From c8fc1aec8b8f50dfe053700ee244d65e66d984d3 Mon Sep 17 00:00:00 2001
+From: Fabien Dessenne <fabien.dessenne@st.com>
+Date: Mon, 7 Mar 2016 12:13:18 +0100
+Subject: [PATCH] modetest: add support of st
+
+Signed-off-by: Fabien Dessenne <fabien.dessenne@st.com>
+---
+ tests/modetest/modetest.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/tests/modetest/modetest.c b/tests/modetest/modetest.c
+index 49bbf93..179579e 100644
+--- a/tests/modetest/modetest.c
++++ b/tests/modetest/modetest.c
+@@ -1557,7 +1557,7 @@ int main(int argc, char **argv)
+ 	int drop_master = 0;
+ 	int test_vsync = 0;
+ 	int test_cursor = 0;
+-	const char *modules[] = { "i915", "radeon", "nouveau", "vmwgfx", "omapdrm", "exynos", "tilcdc", "msm", "sti", "tegra", "imx-drm", "rockchip", "atmel-hlcdc" };
++	const char *modules[] = { "st", "i915", "radeon", "nouveau", "vmwgfx", "omapdrm", "exynos", "tilcdc", "msm", "sti", "tegra", "imx-drm", "rockchip", "atmel-hlcdc" };
+ 	char *device = NULL;
+ 	char *module = NULL;
+ 	unsigned int i;
+-- 
+1.9.1
+
