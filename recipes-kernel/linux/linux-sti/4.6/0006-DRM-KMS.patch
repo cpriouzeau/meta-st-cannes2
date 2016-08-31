@@ -1,0 +1,1770 @@
+From eb25565d2b264efeee4d08385e2b5f37356fba73 Mon Sep 17 00:00:00 2001
+From: Christophe Priouzeau <christophe.priouzeau@st.com>
+Date: Fri, 22 Jul 2016 14:48:24 +0200
+Subject: [PATCH 06/12] DRM KMS
+
+Signed-off-by: Christophe Priouzeau <christophe.priouzeau@st.com>
+---
+ drivers/gpu/drm/drm_atomic.c            |   4 +
+ drivers/gpu/drm/drm_atomic_helper.c     | 116 +++++++++++++
+ drivers/gpu/drm/drm_crtc.c              | 248 ++++++++++++++++++++++++++-
+ drivers/gpu/drm/drm_fops.c              |   1 +
+ drivers/gpu/drm/drm_ioctl.c             |   2 +
+ drivers/gpu/drm/panel/Kconfig           |   5 +
+ drivers/gpu/drm/panel/Makefile          |   1 +
+ drivers/gpu/drm/panel/panel-hsd101pww.c | 154 +++++++++++++++++
+ drivers/gpu/drm/sti/Kconfig             |   1 +
+ drivers/gpu/drm/sti/sti_awg_utils.c     |   4 +-
+ drivers/gpu/drm/sti/sti_crtc.c          |  57 ++++---
+ drivers/gpu/drm/sti/sti_drv.c           |  11 +-
+ drivers/gpu/drm/sti/sti_hdmi.c          | 294 ++++++++++++++++++++++++++++++--
+ drivers/gpu/drm/sti/sti_hdmi.h          |  13 ++
+ drivers/gpu/drm/sti/sti_hqvdp.c         |  70 +++++---
+ drivers/gpu/drm/sti/sti_mixer.c         |   2 +-
+ drivers/gpu/drm/sti/sti_plane.c         |  84 +++++----
+ drivers/gpu/drm/sti/sti_plane.h         |   2 -
+ drivers/gpu/drm/sti/sti_vtg.c           |   2 +-
+ include/drm/drm_crtc.h                  |  30 ++++
+ include/uapi/drm/drm.h                  |   2 +
+ include/uapi/drm/drm_mode.h             |   2 +
+ 22 files changed, 979 insertions(+), 126 deletions(-)
+ create mode 100644 drivers/gpu/drm/panel/panel-hsd101pww.c
+
+diff --git a/drivers/gpu/drm/drm_atomic.c b/drivers/gpu/drm/drm_atomic.c
+index d307d96..5815f8c 100644
+--- a/drivers/gpu/drm/drm_atomic.c
++++ b/drivers/gpu/drm/drm_atomic.c
+@@ -701,6 +701,8 @@ int drm_atomic_plane_set_property(struct drm_plane *plane,
+ 		state->src_h = val;
+ 	} else if (property == config->rotation_property) {
+ 		state->rotation = val;
++	} else if (property == config->zpos_property) {
++		state->zpos = val;
+ 	} else if (plane->funcs->atomic_set_property) {
+ 		return plane->funcs->atomic_set_property(plane, state,
+ 				property, val);
+@@ -757,6 +759,8 @@ drm_atomic_plane_get_property(struct drm_plane *plane,
+ 		*val = state->src_h;
+ 	} else if (property == config->rotation_property) {
+ 		*val = state->rotation;
++	} else if (property == config->zpos_property) {
++		*val = state->zpos;
+ 	} else if (plane->funcs->atomic_get_property) {
+ 		return plane->funcs->atomic_get_property(plane, state, property, val);
+ 	} else {
+diff --git a/drivers/gpu/drm/drm_atomic_helper.c b/drivers/gpu/drm/drm_atomic_helper.c
+index 4befe25..1cea957 100644
+--- a/drivers/gpu/drm/drm_atomic_helper.c
++++ b/drivers/gpu/drm/drm_atomic_helper.c
+@@ -31,6 +31,7 @@
+ #include <drm/drm_crtc_helper.h>
+ #include <drm/drm_atomic_helper.h>
+ #include <linux/fence.h>
++#include <linux/sort.h>
+ 
+ /**
+  * DOC: overview
+@@ -562,6 +563,117 @@ drm_atomic_helper_check_modeset(struct drm_device *dev,
+ }
+ EXPORT_SYMBOL(drm_atomic_helper_check_modeset);
+ 
++static int drm_atomic_state_zpos_cmp(const void *a, const void *b)
++{
++	const struct drm_plane_state *sa = *(struct drm_plane_state **)a;
++	const struct drm_plane_state *sb = *(struct drm_plane_state **)b;
++	int zpos_a = (sa->zpos << 16) + sa->plane->base.id;
++	int zpos_b = (sb->zpos << 16) + sb->plane->base.id;
++
++	return zpos_a - zpos_b;
++}
++
++/**
++ * drm_atomic_helper_crtc_normalize_zpos - calculate normalized zpos values
++ * @crtc: crtc with planes, which have to be considered for normalization
++ * @crtc_state: new atomic state to apply
++ *
++ * This function checks new states of all planes assigned to given crtc and
++ * calculates normalized zpos value for them. Planes are compared first by their
++ * zpos values, then by plane id (if zpos equals). Plane with lowest zpos value
++ * is at the bottom. The plane_state->normalized_zpos is then filled with uniqe
++ * values from 0 to number of active planes in crtc minus one.
++ *
++ * RETURNS
++ * Zero for success or -errno
++ */
++int drm_atomic_helper_crtc_normalize_zpos(struct drm_crtc *crtc,
++					      struct drm_crtc_state *crtc_state)
++{
++	struct drm_atomic_state *state = crtc_state->state;
++	struct drm_device *dev = crtc->dev;
++	int total_planes = dev->mode_config.num_total_plane;
++	struct drm_plane_state **states;
++	struct drm_plane *plane;
++	int i, n = 0;
++	int ret = 0;
++
++	DRM_DEBUG_ATOMIC("[CRTC:%d] calculating normalized zpos values\n",
++			 crtc->base.id);
++
++	states = kmalloc(total_planes * sizeof(*states), GFP_KERNEL);
++	if (!states)
++		return -ENOMEM;
++
++	/*
++	 * Normalization process might create new states for planes which
++	 * normalized_zpos has to be recalculated.
++	 */
++	drm_for_each_plane_mask(plane, dev, crtc_state->plane_mask) {
++		struct drm_plane_state *plane_state =
++			drm_atomic_get_plane_state(state, plane);
++		if (IS_ERR(plane_state)) {
++			ret = PTR_ERR(plane_state);
++			goto fail;
++		}
++		states[n++] = plane_state;
++		DRM_DEBUG_ATOMIC("[PLANE:%d] processing zpos value %d\n",
++				 plane->base.id, plane_state->zpos);
++	}
++
++	sort(states, n, sizeof(*states), drm_atomic_state_zpos_cmp, NULL);
++
++	for (i = 0; i < n; i++) {
++		plane = states[i]->plane;
++		states[i]->normalized_zpos = i;
++		DRM_DEBUG_ATOMIC("[PLANE:%d] normalized zpos value %d\n",
++				 plane->base.id, i);
++	}
++fail:
++	kfree(states);
++	return ret;
++}
++EXPORT_SYMBOL(drm_atomic_helper_crtc_normalize_zpos);
++
++static int drm_atomic_helper_normalize_zpos(struct drm_device *dev,
++					    struct drm_atomic_state *state)
++{
++	struct drm_crtc *crtc;
++	struct drm_crtc_state *crtc_state;
++	struct drm_plane *plane;
++	struct drm_plane_state *plane_state;
++	int i, ret = 0;
++
++	/*
++	 * If zpos_property is not initialized, then it makes no sense
++	 * to calculate normalized zpos values.
++	 */
++	if (!dev->mode_config.zpos_property)
++		return 0;
++
++	for_each_plane_in_state(state, plane, plane_state, i) {
++		crtc = plane_state->crtc;
++		if (!crtc)
++			continue;
++		if (plane->state->zpos != plane_state->zpos) {
++			crtc_state =
++				drm_atomic_get_existing_crtc_state(state, crtc);
++			crtc_state->zpos_changed = true;
++		}
++	}
++
++	for_each_crtc_in_state(state, crtc, crtc_state, i) {
++		if (crtc_state->plane_mask != crtc->state->plane_mask ||
++		    crtc_state->zpos_changed) {
++			ret = drm_atomic_helper_crtc_normalize_zpos(crtc,
++								    crtc_state);
++			if (ret)
++				return ret;
++		}
++	}
++	return 0;
++}
++
+ /**
+  * drm_atomic_helper_check_planes - validate state object for planes changes
+  * @dev: DRM device
+@@ -587,6 +699,10 @@ drm_atomic_helper_check_planes(struct drm_device *dev,
+ 	struct drm_plane_state *plane_state;
+ 	int i, ret = 0;
+ 
++	ret = drm_atomic_helper_normalize_zpos(dev, state);
++	if (ret)
++		return ret;
++
+ 	for_each_plane_in_state(state, plane, plane_state, i) {
+ 		const struct drm_plane_helper_funcs *funcs;
+ 
+diff --git a/drivers/gpu/drm/drm_crtc.c b/drivers/gpu/drm/drm_crtc.c
+index f30de80..a5f6db1 100644
+--- a/drivers/gpu/drm/drm_crtc.c
++++ b/drivers/gpu/drm/drm_crtc.c
+@@ -645,6 +645,28 @@ void drm_framebuffer_remove(struct drm_framebuffer *fb)
+ }
+ EXPORT_SYMBOL(drm_framebuffer_remove);
+ 
++/**
++ * drm_cursor_release - disable existing cursor planes
++ * @dev: drm device
++ *
++ * Scans all the planes in @dev's mode_config.  If they're
++ * enabled cursor planes, removes it.
++ */
++void drm_cursor_release(struct drm_device *dev)
++{
++	struct drm_plane *plane;
++
++	drm_modeset_lock_all(dev);
++
++	list_for_each_entry(plane, &dev->mode_config.plane_list, head) {
++		if ((plane->crtc) && (plane->type == DRM_PLANE_TYPE_CURSOR))
++			drm_plane_force_disable(plane);
++	}
++
++	drm_modeset_unlock_all(dev);
++}
++EXPORT_SYMBOL(drm_cursor_release);
++
+ DEFINE_WW_CLASS(crtc_ww_class);
+ 
+ static unsigned int drm_num_crtcs(struct drm_device *dev)
+@@ -2000,6 +2022,7 @@ int drm_mode_getcrtc(struct drm_device *dev,
+ 
+ 	drm_modeset_lock_crtc(crtc, crtc->primary);
+ 	crtc_resp->gamma_size = crtc->gamma_size;
++	crtc_resp->cmap_size = crtc->cmap_size;
+ 	if (crtc->primary->fb)
+ 		crtc_resp->fb_id = crtc->primary->fb->base.id;
+ 	else
+@@ -3360,7 +3383,8 @@ internal_framebuffer_create(struct drm_device *dev,
+ 	struct drm_framebuffer *fb;
+ 	int ret;
+ 
+-	if (r->flags & ~(DRM_MODE_FB_INTERLACED | DRM_MODE_FB_MODIFIERS)) {
++	if (r->flags & ~(DRM_MODE_FB_INTERLACED | DRM_MODE_FB_MODIFIERS
++			| DRM_MODE_FB_BFF)) {
+ 		DRM_DEBUG_KMS("bad framebuffer flags 0x%08x\n", r->flags);
+ 		return ERR_PTR(-EINVAL);
+ 	}
+@@ -5336,6 +5360,175 @@ out:
+ }
+ 
+ /**
++ * drm_mode_crtc_set_cmap_size - set the color map size
++ * @crtc: CRTC to set the color map size for
++ * @cmpa_size: size of the color map
++ *
++ * Drivers which support color map should set this to the supported color map
++ * size when initializing the CRTC. Currently the drm core only supports a
++ * fixed color map size.
++ *
++ * Returns:
++ * Zero on success, negative errno on failure.
++ */
++int drm_mode_crtc_set_cmap_size(struct drm_crtc *crtc, int cmap_size)
++{
++	crtc->cmap_size = cmap_size;
++
++	crtc->cmap_store = kcalloc(cmap_size, sizeof(uint16_t) * 3, GFP_KERNEL);
++	if (!crtc->cmap_store) {
++		crtc->cmap_size = 0;
++		return -ENOMEM;
++	}
++
++	return 0;
++}
++EXPORT_SYMBOL(drm_mode_crtc_set_cmap_size);
++
++/**
++ * drm_mode_cmap_set_ioctl - set the color map table
++ * @dev: DRM device
++ * @data: ioctl data
++ * @file_priv: DRM file info
++ *
++ * Set the color map (for indexed color format) of a CRTC to the one passed in
++ * by the user. Userspace can inquire the required color map size through
++ * drm_mode_cmap_get_ioctl.
++ *
++ * Called by the user via ioctl.
++ *
++ * Returns:
++ * Zero on success, negative errno on failure.
++ */
++int drm_mode_cmap_set_ioctl(struct drm_device *dev,
++			    void *data, struct drm_file *file_priv)
++{
++	struct drm_mode_crtc_lut *crtc_lut = data;
++	struct drm_crtc *crtc;
++	void *r_base, *g_base, *b_base;
++	int size;
++	int ret = 0;
++
++	if (!drm_core_check_feature(dev, DRIVER_MODESET))
++		return -EINVAL;
++
++	drm_modeset_lock_all(dev);
++	crtc = drm_crtc_find(dev, crtc_lut->crtc_id);
++	if (!crtc) {
++		ret = -ENOENT;
++		goto out;
++	}
++
++	if (!crtc->funcs->cmap_set) {
++		ret = -ENOSYS;
++		goto out;
++	}
++
++	/* memcpy into color map store */
++	if (crtc_lut->gamma_size != crtc->cmap_size) {
++		ret = -EINVAL;
++		goto out;
++	}
++
++	size = crtc_lut->gamma_size * (sizeof(uint16_t));
++	r_base = crtc->cmap_store;
++	if (copy_from_user(r_base,
++			   (void __user *)(unsigned long)crtc_lut->red,
++			   size)) {
++		ret = -EFAULT;
++		goto out;
++	}
++
++	g_base = r_base + size;
++	if (copy_from_user(g_base,
++			   (void __user *)(unsigned long)crtc_lut->green,
++			   size)) {
++		ret = -EFAULT;
++		goto out;
++	}
++
++	b_base = g_base + size;
++	if (copy_from_user(b_base,
++			   (void __user *)(unsigned long)crtc_lut->blue,
++			   size)) {
++		ret = -EFAULT;
++		goto out;
++	}
++
++	crtc->funcs->cmap_set(crtc, r_base, g_base, b_base, 0, crtc->cmap_size);
++
++out:
++	drm_modeset_unlock_all(dev);
++	return ret;
++}
++
++/**
++ * drm_mode_cmap_get_ioctl - get the color map table
++ * @dev: DRM device
++ * @data: ioctl data
++ * @file_priv: DRM file info
++ *
++ * Copy the current color map into the storage provided. This also provides
++ * the color map size the driver expects, which can be used to size the
++ * allocated storage.
++ *
++ * Called by the user via ioctl.
++ *
++ * Returns:
++ * Zero on success, negative errno on failure.
++ */
++int drm_mode_cmap_get_ioctl(struct drm_device *dev,
++			    void *data, struct drm_file *file_priv)
++{
++	struct drm_mode_crtc_lut *crtc_lut = data;
++	struct drm_crtc *crtc;
++	void *r_base, *g_base, *b_base;
++	int size;
++	int ret = 0;
++
++	if (!drm_core_check_feature(dev, DRIVER_MODESET))
++		return -EINVAL;
++
++	drm_modeset_lock_all(dev);
++	crtc = drm_crtc_find(dev, crtc_lut->crtc_id);
++	if (!crtc) {
++		ret = -ENOENT;
++		goto out;
++	}
++
++	/* memcpy into color map store */
++	if (crtc_lut->gamma_size != crtc->cmap_size) {
++		ret = -EINVAL;
++		goto out;
++	}
++
++	size = crtc_lut->gamma_size * (sizeof(uint16_t));
++	r_base = crtc->cmap_store;
++	if (copy_to_user((void __user *)(unsigned long)crtc_lut->red,
++			 r_base, size)) {
++		ret = -EFAULT;
++		goto out;
++	}
++
++	g_base = r_base + size;
++	if (copy_to_user((void __user *)(unsigned long)crtc_lut->green,
++			 g_base, size)) {
++		ret = -EFAULT;
++		goto out;
++	}
++
++	b_base = g_base + size;
++	if (copy_to_user((void __user *)(unsigned long)crtc_lut->blue,
++			 b_base, size)) {
++		ret = -EFAULT;
++		goto out;
++	}
++out:
++	drm_modeset_unlock_all(dev);
++	return ret;
++}
++
++/**
+  * drm_mode_page_flip_ioctl - schedule an asynchronous fb update
+  * @dev: DRM device
+  * @data: ioctl data
+@@ -6017,6 +6210,59 @@ struct drm_property *drm_mode_create_rotation_property(struct drm_device *dev,
+ EXPORT_SYMBOL(drm_mode_create_rotation_property);
+ 
+ /**
++ * drm_mode_create_zpos_property - create muttable zpos property
++ * @dev: DRM device
++ *
++ * This function initializes generic muttable zpos property and enables support
++ * for it in drm core. Drivers can then attach this property to planes to enable
++ * support for configurable planes arrangement during blending operation.
++ * Drivers can also use drm_atomic_helper_normalize_zpos() function to calculate
++ * drm_plane_state->normalized_zpos values.
++ *
++ * Returns:
++ * Zero on success, negative errno on failure.
++ */
++int drm_mode_create_zpos_property(struct drm_device *dev)
++{
++	struct drm_property *prop;
++
++	prop = drm_property_create_range(dev, 0, "zpos", 0, 255);
++	if (!prop)
++		return -ENOMEM;
++
++	dev->mode_config.zpos_property = prop;
++	return 0;
++}
++EXPORT_SYMBOL(drm_mode_create_zpos_property);
++
++/**
++ * drm_plane_create_zpos_property - create immuttable zpos property
++ * @dev: DRM device
++ *
++ * This function initializes generic immuttable zpos property and enables
++ * support for it in drm core. Using this property driver lets userspace
++ * to get the arrangement of the planes for blending operation and notifies
++ * it that the hardware (or driver) doesn't support changing of the planes'
++ * order.
++ *
++ * Returns:
++ * Zero on success, negative errno on failure.
++ */
++int drm_mode_create_zpos_immutable_property(struct drm_device *dev)
++{
++	struct drm_property *prop;
++
++	prop = drm_property_create_range(dev, DRM_MODE_PROP_IMMUTABLE, "zpos",
++					 0, 255);
++	if (!prop)
++		return -ENOMEM;
++
++	dev->mode_config.zpos_immutable_property = prop;
++	return 0;
++}
++EXPORT_SYMBOL(drm_mode_create_zpos_immutable_property);
++
++/**
+  * DOC: Tile group
+  *
+  * Tile groups are used to represent tiled monitors with a unique
+diff --git a/drivers/gpu/drm/drm_fops.c b/drivers/gpu/drm/drm_fops.c
+index aeef58e..e6305b6 100644
+--- a/drivers/gpu/drm/drm_fops.c
++++ b/drivers/gpu/drm/drm_fops.c
+@@ -480,6 +480,7 @@ int drm_release(struct inode *inode, struct file *filp)
+ 
+ 	if (drm_core_check_feature(dev, DRIVER_MODESET)) {
+ 		drm_fb_release(file_priv);
++		drm_cursor_release(dev);
+ 		drm_property_destroy_user_blobs(dev, file_priv);
+ 	}
+ 
+diff --git a/drivers/gpu/drm/drm_ioctl.c b/drivers/gpu/drm/drm_ioctl.c
+index 8ce2a0c..d8eedb2 100644
+--- a/drivers/gpu/drm/drm_ioctl.c
++++ b/drivers/gpu/drm/drm_ioctl.c
+@@ -663,6 +663,8 @@ static const struct drm_ioctl_desc drm_ioctls[] = {
+ 	DRM_IOCTL_DEF(DRM_IOCTL_MODE_ATOMIC, drm_mode_atomic_ioctl, DRM_MASTER|DRM_CONTROL_ALLOW|DRM_UNLOCKED),
+ 	DRM_IOCTL_DEF(DRM_IOCTL_MODE_CREATEPROPBLOB, drm_mode_createblob_ioctl, DRM_CONTROL_ALLOW|DRM_UNLOCKED),
+ 	DRM_IOCTL_DEF(DRM_IOCTL_MODE_DESTROYPROPBLOB, drm_mode_destroyblob_ioctl, DRM_CONTROL_ALLOW|DRM_UNLOCKED),
++	DRM_IOCTL_DEF(DRM_IOCTL_MODE_GETCMAP, drm_mode_cmap_get_ioctl, DRM_UNLOCKED),
++	DRM_IOCTL_DEF(DRM_IOCTL_MODE_SETCMAP, drm_mode_cmap_set_ioctl, DRM_MASTER|DRM_UNLOCKED),
+ };
+ 
+ #define DRM_CORE_IOCTL_COUNT	ARRAY_SIZE( drm_ioctls )
+diff --git a/drivers/gpu/drm/panel/Kconfig b/drivers/gpu/drm/panel/Kconfig
+index 1500ab9..66bb708 100644
+--- a/drivers/gpu/drm/panel/Kconfig
++++ b/drivers/gpu/drm/panel/Kconfig
+@@ -70,4 +70,9 @@ config DRM_PANEL_SHARP_LS043T1LE01
+ 	  Say Y here if you want to enable support for Sharp LS043T1LE01 qHD
+ 	  (540x960) DSI panel as found on the Qualcomm APQ8074 Dragonboard
+ 
++config DRM_PANEL_HSD101PWW
++	tristate "HSD101PWW LVDS panel"
++	depends on OF
++	select VIDEOMODE_HELPERS
++
+ endmenu
+diff --git a/drivers/gpu/drm/panel/Makefile b/drivers/gpu/drm/panel/Makefile
+index f277eed..5e7b4aa 100644
+--- a/drivers/gpu/drm/panel/Makefile
++++ b/drivers/gpu/drm/panel/Makefile
+@@ -5,3 +5,4 @@ obj-$(CONFIG_DRM_PANEL_SAMSUNG_LD9040) += panel-samsung-ld9040.o
+ obj-$(CONFIG_DRM_PANEL_SAMSUNG_S6E8AA0) += panel-samsung-s6e8aa0.o
+ obj-$(CONFIG_DRM_PANEL_SHARP_LQ101R1SX01) += panel-sharp-lq101r1sx01.o
+ obj-$(CONFIG_DRM_PANEL_SHARP_LS043T1LE01) += panel-sharp-ls043t1le01.o
++obj-$(CONFIG_DRM_PANEL_HSD101PWW) += panel-hsd101pww.o
+diff --git a/drivers/gpu/drm/panel/panel-hsd101pww.c b/drivers/gpu/drm/panel/panel-hsd101pww.c
+new file mode 100644
+index 0000000..61a622f
+--- /dev/null
++++ b/drivers/gpu/drm/panel/panel-hsd101pww.c
+@@ -0,0 +1,154 @@
++/*
++ * hsd101pww LED LCD drm_panel driver.
++ *
++ * Copyright (c) 2014 STMicroelectronics SA
++ *
++ * Vincent Abriou <vincent.abriou@st.com>
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License version 2 as
++ * published by the Free Software Foundation.
++*/
++
++#include <linux/of_gpio.h>
++
++#include <drm/drmP.h>
++#include <drm/drm_panel.h>
++
++#include <video/of_videomode.h>
++#include <video/videomode.h>
++
++struct hsd101pww {
++	struct drm_panel panel;
++	int enable_gpio;
++	struct videomode vm;
++	u32 width_mm;
++	u32 height_mm;
++};
++
++#define panel_to_hsd101pww(p) container_of(p, struct hsd101pww, panel)
++
++static int hsd101pww_enable(struct drm_panel *panel)
++{
++	struct hsd101pww *ctx = panel_to_hsd101pww(panel);
++
++	gpio_set_value_cansleep(ctx->enable_gpio, 1);
++
++	return 0;
++}
++
++static int hsd101pww_disable(struct drm_panel *panel)
++{
++	struct hsd101pww *ctx = panel_to_hsd101pww(panel);
++
++	gpio_set_value_cansleep(ctx->enable_gpio, 0);
++
++	return 0;
++}
++
++static int hsd101pww_get_modes(struct drm_panel *panel)
++{
++	struct drm_connector *connector = panel->connector;
++	struct hsd101pww *ctx = panel_to_hsd101pww(panel);
++	struct drm_display_mode *mode;
++
++	mode = drm_mode_create(connector->dev);
++	if (!mode) {
++		DRM_ERROR("failed to create a new display mode\n");
++		return 0;
++	}
++
++	drm_display_mode_from_videomode(&ctx->vm, mode);
++	mode->width_mm = ctx->width_mm;
++	mode->height_mm = ctx->height_mm;
++	connector->display_info.width_mm = mode->width_mm;
++	connector->display_info.height_mm = mode->height_mm;
++
++	mode->type = DRM_MODE_TYPE_DRIVER | DRM_MODE_TYPE_PREFERRED;
++	drm_mode_probed_add(connector, mode);
++
++	return 1;
++}
++
++static const struct drm_panel_funcs hsd101pww_drm_funcs = {
++	.disable = hsd101pww_disable,
++	.enable = hsd101pww_enable,
++	.get_modes = hsd101pww_get_modes,
++};
++
++static int hsd101pww_probe(struct platform_device *pdev)
++{
++	struct device *dev = &pdev->dev;
++	struct hsd101pww *ctx;
++	struct device_node *np = dev->of_node;
++	int ret;
++
++	ctx = devm_kzalloc(dev, sizeof(struct hsd101pww), GFP_KERNEL);
++	if (!ctx)
++		return -ENOMEM;
++
++	ret = of_get_videomode(np, &ctx->vm, 0);
++	if (ret < 0)
++		return ret;
++
++	of_property_read_u32(np, "panel-width-mm", &ctx->width_mm);
++	of_property_read_u32(np, "panel-height-mm", &ctx->height_mm);
++
++	ctx->enable_gpio = of_get_named_gpio(np, "enable-gpio", 0);
++	if (ctx->enable_gpio < 0) {
++		dev_err(dev, "failed to get led-gpio\n");
++		return -EIO;
++	}
++	ret = gpio_is_valid(ctx->enable_gpio);
++	if (!ret) {
++		dev_err(dev, "led-gpio is not valid (gpio=%d)\n",
++			ctx->enable_gpio);
++		return -EIO;
++	}
++	ret = devm_gpio_request(dev, ctx->enable_gpio, pdev->name);
++	if (ret) {
++		dev_err(dev, "failed to request led-gpio\n");
++		return -EIO;
++	}
++	/* set gpio as output and disable it */
++	gpio_direction_output(ctx->enable_gpio, 0);
++
++	drm_panel_init(&ctx->panel);
++	ctx->panel.dev = dev;
++	ctx->panel.funcs = &hsd101pww_drm_funcs;
++
++	return drm_panel_add(&ctx->panel);
++}
++
++static int hsd101pww_remove(struct platform_device *pdev)
++{
++	struct hsd101pww *ctx = dev_get_drvdata(&pdev->dev);
++
++	hsd101pww_disable(&ctx->panel);
++
++	drm_panel_remove(&ctx->panel);
++
++	return 0;
++}
++
++const struct of_device_id hsd101pww_of_match[] = {
++	{ .compatible = "hannstar,hsd101pww" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, hsd101pww_of_match);
++
++static struct platform_driver hsd101pww_driver = {
++	.driver = {
++		.name	= "hsd101pww",
++		.owner	= THIS_MODULE,
++		.of_match_table = hsd101pww_of_match,
++	},
++	.probe		= hsd101pww_probe,
++	.remove		= hsd101pww_remove,
++};
++
++module_platform_driver(hsd101pww_driver);
++
++MODULE_AUTHOR("Vincent Abriou <vincent.abriou@st.com>");
++MODULE_DESCRIPTION("hsd101pww LCD Driver");
++MODULE_LICENSE("GPL v2");
+diff --git a/drivers/gpu/drm/sti/Kconfig b/drivers/gpu/drm/sti/Kconfig
+index 5ad43a1..494ab25 100644
+--- a/drivers/gpu/drm/sti/Kconfig
++++ b/drivers/gpu/drm/sti/Kconfig
+@@ -7,5 +7,6 @@ config DRM_STI
+ 	select DRM_KMS_CMA_HELPER
+ 	select DRM_PANEL
+ 	select FW_LOADER
++	select SND_SOC_HDMI_CODEC if SND_SOC
+ 	help
+ 	  Choose this option to enable DRM on STM stiH41x chipset
+diff --git a/drivers/gpu/drm/sti/sti_awg_utils.c b/drivers/gpu/drm/sti/sti_awg_utils.c
+index a516eb8..2da7d68 100644
+--- a/drivers/gpu/drm/sti/sti_awg_utils.c
++++ b/drivers/gpu/drm/sti/sti_awg_utils.c
+@@ -6,6 +6,8 @@
+ 
+ #include "sti_awg_utils.h"
+ 
++#define AWG_DELAY (-5)
++
+ #define AWG_OPCODE_OFFSET 10
+ #define AWG_MAX_ARG       0x3ff
+ 
+@@ -125,7 +127,7 @@ static int awg_generate_line_signal(
+ 		val = timing->blanking_level;
+ 		ret |= awg_generate_instr(RPLSET, val, 0, 0, fwparams);
+ 
+-		val = timing->trailing_pixels - 1;
++		val = timing->trailing_pixels - 1 + AWG_DELAY;
+ 		ret |= awg_generate_instr(SKIP, val, 0, 0, fwparams);
+ 	}
+ 
+diff --git a/drivers/gpu/drm/sti/sti_crtc.c b/drivers/gpu/drm/sti/sti_crtc.c
+index 505620c..5261b00 100644
+--- a/drivers/gpu/drm/sti/sti_crtc.c
++++ b/drivers/gpu/drm/sti/sti_crtc.c
+@@ -30,15 +30,6 @@ static void sti_crtc_enable(struct drm_crtc *crtc)
+ 
+ 	mixer->status = STI_MIXER_READY;
+ 
+-	/* Prepare and enable the compo IP clock */
+-	if (mixer->id == STI_MIXER_MAIN) {
+-		if (clk_prepare_enable(compo->clk_compo_main))
+-			DRM_INFO("Failed to prepare/enable compo_main clk\n");
+-	} else {
+-		if (clk_prepare_enable(compo->clk_compo_aux))
+-			DRM_INFO("Failed to prepare/enable compo_aux clk\n");
+-	}
+-
+ 	drm_crtc_vblank_on(crtc);
+ }
+ 
+@@ -66,9 +57,8 @@ sti_crtc_mode_set(struct drm_crtc *crtc, struct drm_display_mode *mode)
+ 	struct sti_mixer *mixer = to_sti_mixer(crtc);
+ 	struct device *dev = mixer->dev;
+ 	struct sti_compositor *compo = dev_get_drvdata(dev);
+-	struct clk *clk;
++	struct clk *compo_clk, *pix_clk;
+ 	int rate = mode->clock * 1000;
+-	int res;
+ 
+ 	DRM_DEBUG_KMS("CRTC:%d (%s) mode:%d (%s)\n",
+ 		      crtc->base.id, sti_mixer_to_str(mixer),
+@@ -83,32 +73,46 @@ sti_crtc_mode_set(struct drm_crtc *crtc, struct drm_display_mode *mode)
+ 		      mode->vsync_start, mode->vsync_end,
+ 		      mode->vtotal, mode->type, mode->flags);
+ 
+-	/* Set rate and prepare/enable pixel clock */
+-	if (mixer->id == STI_MIXER_MAIN)
+-		clk = compo->clk_pix_main;
+-	else
+-		clk = compo->clk_pix_aux;
++	if (mixer->id == STI_MIXER_MAIN) {
++		compo_clk = compo->clk_compo_main;
++		pix_clk = compo->clk_pix_main;
++	} else {
++		compo_clk = compo->clk_compo_aux;
++		pix_clk = compo->clk_pix_aux;
++	}
+ 
+-	res = clk_set_rate(clk, rate);
+-	if (res < 0) {
++	/* Prepare and enable the compo IP clock */
++	if (clk_prepare_enable(compo_clk)) {
++		DRM_INFO("Failed to prepare/enable compositor clk\n");
++		goto compo_error;
++	}
++
++	/* Set rate and prepare/enable pixel clock */
++	if (clk_set_rate(pix_clk, rate) < 0) {
+ 		DRM_ERROR("Cannot set rate (%dHz) for pix clk\n", rate);
+-		return -EINVAL;
++		goto pix_error;
+ 	}
+-	if (clk_prepare_enable(clk)) {
++	if (clk_prepare_enable(pix_clk)) {
+ 		DRM_ERROR("Failed to prepare/enable pix clk\n");
+-		return -EINVAL;
++		goto pix_error;
+ 	}
+ 
+ 	sti_vtg_set_config(mixer->id == STI_MIXER_MAIN ?
+ 			compo->vtg_main : compo->vtg_aux, &crtc->mode);
+ 
+-	res = sti_mixer_active_video_area(mixer, &crtc->mode);
+-	if (res) {
++	if (sti_mixer_active_video_area(mixer, &crtc->mode)) {
+ 		DRM_ERROR("Can't set active video area\n");
+-		return -EINVAL;
++		goto mixer_error;
+ 	}
+ 
+-	return res;
++	return 0;
++
++mixer_error:
++	clk_disable_unprepare(pix_clk);
++pix_error:
++	clk_disable_unprepare(compo_clk);
++compo_error:
++	return -EINVAL;
+ }
+ 
+ static void sti_crtc_disable(struct drm_crtc *crtc)
+@@ -139,7 +143,6 @@ static void sti_crtc_disable(struct drm_crtc *crtc)
+ static void
+ sti_crtc_mode_set_nofb(struct drm_crtc *crtc)
+ {
+-	sti_crtc_enable(crtc);
+ 	sti_crtc_mode_set(crtc, &crtc->state->adjusted_mode);
+ }
+ 
+@@ -231,9 +234,7 @@ static const struct drm_crtc_helper_funcs sti_crtc_helper_funcs = {
+ 	.enable = sti_crtc_enable,
+ 	.disable = sti_crtc_disabling,
+ 	.mode_fixup = sti_crtc_mode_fixup,
+-	.mode_set = drm_helper_crtc_mode_set,
+ 	.mode_set_nofb = sti_crtc_mode_set_nofb,
+-	.mode_set_base = drm_helper_crtc_mode_set_base,
+ 	.atomic_begin = sti_crtc_atomic_begin,
+ 	.atomic_flush = sti_crtc_atomic_flush,
+ };
+diff --git a/drivers/gpu/drm/sti/sti_drv.c b/drivers/gpu/drm/sti/sti_drv.c
+index 6bd6aba..5c6d773 100644
+--- a/drivers/gpu/drm/sti/sti_drv.c
++++ b/drivers/gpu/drm/sti/sti_drv.c
+@@ -187,7 +187,12 @@ static void sti_atomic_complete(struct sti_private *private,
+ 	drm_atomic_helper_commit_planes(drm, state, false);
+ 	drm_atomic_helper_commit_modeset_enables(drm, state);
+ 
+-	drm_atomic_helper_wait_for_vblanks(drm, state);
++	/*
++	 * With a non atomic driver, this is up to the userland to ask to wait
++	 * for vblank event.
++	 */
++	if (drm_core_check_feature(drm, DRIVER_ATOMIC))
++		drm_atomic_helper_wait_for_vblanks(drm, state);
+ 
+ 	drm_atomic_helper_cleanup_planes(drm, state);
+ 	drm_atomic_state_free(state);
+@@ -308,8 +313,10 @@ static const struct file_operations sti_driver_fops = {
+ 
+ static struct drm_driver sti_driver = {
+ 	.driver_features = DRIVER_HAVE_IRQ | DRIVER_MODESET |
+-	    DRIVER_GEM | DRIVER_PRIME | DRIVER_ATOMIC,
++	    DRIVER_GEM | DRIVER_PRIME,
+ 	.load = sti_load,
++	.set_busid = drm_platform_set_busid,
++
+ 	.gem_free_object = drm_gem_cma_free_object,
+ 	.gem_vm_ops = &drm_gem_cma_vm_ops,
+ 	.dumb_create = drm_gem_cma_dumb_create,
+diff --git a/drivers/gpu/drm/sti/sti_hdmi.c b/drivers/gpu/drm/sti/sti_hdmi.c
+index 6ef0715..f345c2d 100644
+--- a/drivers/gpu/drm/sti/sti_hdmi.c
++++ b/drivers/gpu/drm/sti/sti_hdmi.c
+@@ -18,6 +18,8 @@
+ #include <drm/drm_crtc_helper.h>
+ #include <drm/drm_edid.h>
+ 
++#include <sound/hdmi-codec.h>
++
+ #include "sti_hdmi.h"
+ #include "sti_hdmi_tx3g4c28phy.h"
+ #include "sti_hdmi_tx3g0c55phy.h"
+@@ -35,6 +37,8 @@
+ #define HDMI_DFLT_CHL0_DAT              0x0110
+ #define HDMI_DFLT_CHL1_DAT              0x0114
+ #define HDMI_DFLT_CHL2_DAT              0x0118
++#define HDMI_AUDIO_CFG                  0x0200
++#define HDMI_SPDIF_FIFO_STATUS          0x0204
+ #define HDMI_SW_DI_1_HEAD_WORD          0x0210
+ #define HDMI_SW_DI_1_PKT_WORD0          0x0214
+ #define HDMI_SW_DI_1_PKT_WORD1          0x0218
+@@ -44,6 +48,9 @@
+ #define HDMI_SW_DI_1_PKT_WORD5          0x0228
+ #define HDMI_SW_DI_1_PKT_WORD6          0x022C
+ #define HDMI_SW_DI_CFG                  0x0230
++#define HDMI_SAMPLE_FLAT_MASK           0x0244
++#define HDMI_AUDN                       0x0400
++#define HDMI_AUD_CTS                    0x0404
+ #define HDMI_SW_DI_2_HEAD_WORD          0x0600
+ #define HDMI_SW_DI_2_PKT_WORD0          0x0604
+ #define HDMI_SW_DI_2_PKT_WORD1          0x0608
+@@ -103,6 +110,7 @@
+ #define HDMI_INT_DLL_LCK                BIT(5)
+ #define HDMI_INT_NEW_FRAME              BIT(6)
+ #define HDMI_INT_GENCTRL_PKT            BIT(7)
++#define HDMI_INT_AUDIO_FIFO_XRUN        BIT(8)
+ #define HDMI_INT_SINK_TERM_PRESENT      BIT(11)
+ 
+ #define HDMI_DEFAULT_INT (HDMI_INT_SINK_TERM_PRESENT \
+@@ -111,6 +119,7 @@
+ 			| HDMI_INT_GLOBAL)
+ 
+ #define HDMI_WORKING_INT (HDMI_INT_SINK_TERM_PRESENT \
++			| HDMI_INT_AUDIO_FIFO_XRUN \
+ 			| HDMI_INT_GENCTRL_PKT \
+ 			| HDMI_INT_NEW_FRAME \
+ 			| HDMI_INT_DLL_LCK \
+@@ -121,6 +130,27 @@
+ 
+ #define HDMI_STA_SW_RST                 BIT(1)
+ 
++#define HDMI_AUD_CFG_8CH		BIT(0)
++#define HDMI_AUD_CFG_SPDIF_DIV_2	BIT(1)
++#define HDMI_AUD_CFG_SPDIF_DIV_3	BIT(2)
++#define HDMI_AUD_CFG_SPDIF_CLK_DIV_4	(BIT(1) | BIT(2))
++#define HDMI_AUD_CFG_CTS_CLK_256FS	BIT(12)
++#define HDMI_AUD_CFG_DTS_INVALID	BIT(16)
++#define HDMI_AUD_CFG_ONE_BIT_INVALID	(BIT(18) | BIT(19) | BIT(20) |  BIT(21))
++#define HDMI_AUD_CFG_CH12_VALID	BIT(28)
++#define HDMI_AUD_CFG_CH34_VALID	BIT(29)
++#define HDMI_AUD_CFG_CH56_VALID	BIT(30)
++#define HDMI_AUD_CFG_CH78_VALID	BIT(31)
++
++/* sample flat mask */
++#define HDMI_SAMPLE_FLAT_NO	 0
++#define HDMI_SAMPLE_FLAT_SP0 BIT(0)
++#define HDMI_SAMPLE_FLAT_SP1 BIT(1)
++#define HDMI_SAMPLE_FLAT_SP2 BIT(2)
++#define HDMI_SAMPLE_FLAT_SP3 BIT(3)
++#define HDMI_SAMPLE_FLAT_ALL (HDMI_SAMPLE_FLAT_SP0 | HDMI_SAMPLE_FLAT_SP1 |\
++			      HDMI_SAMPLE_FLAT_SP2 | HDMI_SAMPLE_FLAT_SP3)
++
+ #define HDMI_INFOFRAME_HEADER_TYPE(x)    (((x) & 0xff) <<  0)
+ #define HDMI_INFOFRAME_HEADER_VERSION(x) (((x) & 0xff) <<  8)
+ #define HDMI_INFOFRAME_HEADER_LEN(x)     (((x) & 0x0f) << 16)
+@@ -171,6 +201,10 @@ static irqreturn_t hdmi_irq_thread(int irq, void *arg)
+ 		wake_up_interruptible(&hdmi->wait_event);
+ 	}
+ 
++	/* Audio FIFO underrun IRQ */
++	if (hdmi->irq_status & HDMI_INT_AUDIO_FIFO_XRUN)
++		DRM_INFO("Warning: audio FIFO underrun occurs!");
++
+ 	return IRQ_HANDLED;
+ }
+ 
+@@ -441,26 +475,29 @@ static int hdmi_avi_infoframe_config(struct sti_hdmi *hdmi)
+  */
+ static int hdmi_audio_infoframe_config(struct sti_hdmi *hdmi)
+ {
+-	struct hdmi_audio_infoframe infofame;
++	struct hdmi_audio_params *audio = &hdmi->audio;
+ 	u8 buffer[HDMI_INFOFRAME_SIZE(AUDIO)];
+-	int ret;
+-
+-	ret = hdmi_audio_infoframe_init(&infofame);
+-	if (ret < 0) {
+-		DRM_ERROR("failed to setup audio infoframe: %d\n", ret);
+-		return ret;
+-	}
+-
+-	infofame.channels = 2;
+-
+-	ret = hdmi_audio_infoframe_pack(&infofame, buffer, sizeof(buffer));
+-	if (ret < 0) {
+-		DRM_ERROR("failed to pack audio infoframe: %d\n", ret);
+-		return ret;
++	int ret, val;
++
++	DRM_DEBUG_DRIVER("enter %s, AIF %s\n", __func__,
++			 audio->enabled ? "enable" : "disable");
++	if (audio->enabled) {
++		/* set audio parameters stored*/
++		ret = hdmi_audio_infoframe_pack(&audio->cea, buffer,
++						sizeof(buffer));
++		if (ret < 0) {
++			DRM_ERROR("failed to pack audio infoframe: %d\n", ret);
++			return ret;
++		}
++		hdmi_infoframe_write_infopack(hdmi, buffer, ret);
++	} else {
++		/*disable audio info frame transmission */
++		val = hdmi_read(hdmi, HDMI_SW_DI_CFG);
++		val &= ~HDMI_IFRAME_CFG_DI_N(HDMI_IFRAME_MASK,
++					     HDMI_IFRAME_SLOT_AUDIO);
++		hdmi_write(hdmi, val, HDMI_SW_DI_CFG);
+ 	}
+ 
+-	hdmi_infoframe_write_infopack(hdmi, buffer, ret);
+-
+ 	return 0;
+ }
+ 
+@@ -656,6 +693,10 @@ static int hdmi_dbg_show(struct seq_file *s, void *data)
+ 	DBGFS_DUMP("", HDMI_SW_DI_CFG);
+ 	hdmi_dbg_sw_di_cfg(s, hdmi_read(hdmi, HDMI_SW_DI_CFG));
+ 
++	DBGFS_DUMP("\n", HDMI_AUDIO_CFG);
++	DBGFS_DUMP("\n", HDMI_SPDIF_FIFO_STATUS);
++	DBGFS_DUMP("\n", HDMI_AUDN);
++
+ 	seq_printf(s, "\n AVI Infoframe (Data Island slot N=%d):",
+ 		   HDMI_IFRAME_SLOT_AVI);
+ 	DBGFS_DUMP_DI(HDMI_SW_DI_N_HEAD_WORD, HDMI_IFRAME_SLOT_AVI);
+@@ -861,6 +902,7 @@ static int sti_hdmi_connector_get_modes(struct drm_connector *connector)
+ 
+ 	count = drm_add_edid_modes(connector, edid);
+ 	drm_mode_connector_update_edid_property(connector, edid);
++	drm_edid_to_eld(connector, edid);
+ 
+ 	kfree(edid);
+ 	return count;
+@@ -1049,6 +1091,206 @@ static struct drm_encoder *sti_hdmi_find_encoder(struct drm_device *dev)
+ 	return NULL;
+ }
+ 
++/**
++ * sti_hdmi_audio_get_non_coherent_n() - get N parameter for non-coherent
++ * clocks. None-coherent clocks means that audio and TMDS clocks have not the
++ * same source (drifts between clocks). In this case assumption is that CTS is
++ * automatically calculated by hardware.
++ *
++ * @audio_fs: audio frame clock frequency in Hz
++ *
++ * Values computed are based on table described in HDMI specification 1.4b
++ *
++ * Returns n value.
++ */
++static int sti_hdmi_audio_get_non_coherent_n(unsigned int audio_fs)
++{
++	unsigned int n;
++
++	switch (audio_fs) {
++	case 32000:
++		n = 4096;
++		break;
++	case 44100:
++		n = 6272;
++		break;
++	case 48000:
++		n = 6144;
++		break;
++	case 88200:
++		n = 6272 * 2;
++		break;
++	case 96000:
++		n = 6144 * 2;
++		break;
++	case 176400:
++		n = 6272 * 4;
++		break;
++	case 192000:
++		n = 6144 * 4;
++		break;
++	default:
++		/* Not pre-defined, recommended value: 128 * fs / 1000 */
++		n = (audio_fs * 128) / 1000;
++	}
++
++	return n;
++}
++
++static int hdmi_audio_configure(struct sti_hdmi *hdmi,
++				struct hdmi_audio_params *params)
++{
++	int audio_cfg, n;
++	struct hdmi_audio_infoframe *info = &params->cea;
++
++	DRM_DEBUG_DRIVER("\n");
++
++	if (!hdmi->enabled)
++		return 0;
++
++	/* update N parameter */
++	n = sti_hdmi_audio_get_non_coherent_n(params->sample_rate);
++
++	DRM_DEBUG_DRIVER("Audio rate = %d Hz, TMDS clock = %d Hz, n = %d\n",
++			 params->sample_rate, hdmi->mode.clock * 1000, n);
++	hdmi_write(hdmi, n, HDMI_AUDN);
++
++	/* update HDMI registers according to configuration */
++	audio_cfg = HDMI_AUD_CFG_SPDIF_DIV_2 | HDMI_AUD_CFG_DTS_INVALID |
++		    HDMI_AUD_CFG_ONE_BIT_INVALID;
++
++	switch (info->channels) {
++	case 8:
++		audio_cfg |= HDMI_AUD_CFG_CH78_VALID;
++	case 6:
++		audio_cfg |= HDMI_AUD_CFG_CH56_VALID;
++	case 4:
++		audio_cfg |= HDMI_AUD_CFG_CH34_VALID | HDMI_AUD_CFG_8CH;
++	case 2:
++		audio_cfg |= HDMI_AUD_CFG_CH12_VALID;
++		break;
++	default:
++		DRM_ERROR("ERROR: Unsupported number of channels (%d)!\n",
++			  info->channels);
++		return -EINVAL;
++	}
++
++	hdmi_write(hdmi, audio_cfg, HDMI_AUDIO_CFG);
++
++	hdmi->audio = *params;
++
++	return hdmi_audio_infoframe_config(hdmi);
++}
++
++static void hdmi_audio_shutdown(struct device *dev)
++{
++	struct sti_hdmi *hdmi = dev_get_drvdata(dev);
++	int audio_cfg;
++
++	DRM_DEBUG_DRIVER("\n");
++
++	/* disable audio */
++	audio_cfg = HDMI_AUD_CFG_SPDIF_DIV_2 | HDMI_AUD_CFG_DTS_INVALID |
++		    HDMI_AUD_CFG_ONE_BIT_INVALID;
++	hdmi_write(hdmi, audio_cfg, HDMI_AUDIO_CFG);
++
++	hdmi->audio.enabled = 0;
++	hdmi_audio_infoframe_config(hdmi);
++}
++
++static int hdmi_audio_hw_params(struct device *dev,
++				struct hdmi_codec_daifmt *daifmt,
++				struct hdmi_codec_params *params)
++{
++	struct sti_hdmi *hdmi = dev_get_drvdata(dev);
++	int ret;
++	struct hdmi_audio_params audio = {
++		.sample_width = params->sample_width,
++		.sample_rate = params->sample_rate,
++		.cea = params->cea,
++	};
++
++	DRM_DEBUG_DRIVER("\n");
++
++	if (!hdmi->enabled)
++		return 0;
++
++	if ((daifmt->fmt != HDMI_I2S) || daifmt->bit_clk_inv ||
++	    daifmt->frame_clk_inv || daifmt->bit_clk_master ||
++	    daifmt->frame_clk_master) {
++		dev_err(dev, "%s: Bad flags %d %d %d %d\n", __func__,
++			daifmt->bit_clk_inv, daifmt->frame_clk_inv,
++			daifmt->bit_clk_master,
++			daifmt->frame_clk_master);
++		return -EINVAL;
++	}
++
++	audio.enabled = 1;
++
++	ret = hdmi_audio_configure(hdmi, &audio);
++	if (ret < 0)
++		return ret;
++
++	return 0;
++}
++
++static int hdmi_audio_digital_mute(struct device *dev, bool enable)
++{
++	struct sti_hdmi *hdmi = dev_get_drvdata(dev);
++
++	DRM_DEBUG_DRIVER("%s\n", enable ? "enable" : "disable");
++
++	if (enable)
++		hdmi_write(hdmi, HDMI_SAMPLE_FLAT_ALL, HDMI_SAMPLE_FLAT_MASK);
++	else
++		hdmi_write(hdmi, HDMI_SAMPLE_FLAT_NO, HDMI_SAMPLE_FLAT_MASK);
++
++	return 0;
++}
++
++static int hdmi_audio_get_eld(struct device *dev, uint8_t *buf, size_t len)
++{
++	struct sti_hdmi *hdmi = dev_get_drvdata(dev);
++	struct drm_connector *connector = hdmi->drm_connector;
++
++	DRM_DEBUG_DRIVER("\n");
++	memcpy(buf, connector->eld, min(sizeof(connector->eld), len));
++
++	return 0;
++}
++
++static const struct hdmi_codec_ops audio_codec_ops = {
++	.hw_params = hdmi_audio_hw_params,
++	.audio_shutdown = hdmi_audio_shutdown,
++	.digital_mute = hdmi_audio_digital_mute,
++	.get_eld = hdmi_audio_get_eld,
++};
++
++static int sti_hdmi_register_audio_driver(struct device *dev,
++					  struct sti_hdmi *hdmi)
++{
++	struct hdmi_codec_pdata codec_data = {
++		.ops = &audio_codec_ops,
++		.max_i2s_channels = 8,
++		.i2s = 1,
++	};
++
++	DRM_DEBUG_DRIVER("\n");
++
++	hdmi->audio.enabled = 0;
++
++	hdmi->audio_pdev = platform_device_register_data(
++		dev, HDMI_CODEC_DRV_NAME, PLATFORM_DEVID_AUTO,
++		&codec_data, sizeof(codec_data));
++
++	if (IS_ERR(hdmi->audio_pdev))
++		return PTR_ERR(hdmi->audio_pdev);
++
++	DRM_INFO("%s Driver bound %s\n", HDMI_CODEC_DRV_NAME, dev_name(dev));
++
++	return 0;
++}
++
+ static int sti_hdmi_bind(struct device *dev, struct device *master, void *data)
+ {
+ 	struct sti_hdmi *hdmi = dev_get_drvdata(dev);
+@@ -1099,12 +1341,27 @@ static int sti_hdmi_bind(struct device *dev, struct device *master, void *data)
+ 	if (err)
+ 		goto err_connector;
+ 
++	hdmi->drm_connector = drm_connector;
++
+ 	err = drm_mode_connector_attach_encoder(drm_connector, encoder);
+ 	if (err) {
+ 		DRM_ERROR("Failed to attach a connector to a encoder\n");
+ 		goto err_sysfs;
+ 	}
+ 
++	err = sti_hdmi_register_audio_driver(dev, hdmi);
++	if (err) {
++		DRM_ERROR("Failed to attach an audio codec\n");
++		goto err_sysfs;
++	}
++
++	/* Initialize audio infoframe */
++	err = hdmi_audio_infoframe_init(&hdmi->audio.cea);
++	if (err) {
++		DRM_ERROR("Failed to init audio infoframe\n");
++		goto err_sysfs;
++	}
++
+ 	/* Enable default interrupts */
+ 	hdmi_write(hdmi, HDMI_DEFAULT_INT, HDMI_INT_EN);
+ 
+@@ -1115,6 +1372,7 @@ static int sti_hdmi_bind(struct device *dev, struct device *master, void *data)
+ 
+ err_sysfs:
+ 	drm_connector_unregister(drm_connector);
++	hdmi->drm_connector = NULL;
+ err_connector:
+ 	drm_connector_cleanup(drm_connector);
+ 
+@@ -1267,6 +1525,8 @@ static int sti_hdmi_remove(struct platform_device *pdev)
+ 	struct sti_hdmi *hdmi = dev_get_drvdata(&pdev->dev);
+ 
+ 	i2c_put_adapter(hdmi->ddc_adapt);
++	if (hdmi->audio_pdev)
++		platform_device_unregister(hdmi->audio_pdev);
+ 	component_del(&pdev->dev, &sti_hdmi_ops);
+ 
+ 	return 0;
+diff --git a/drivers/gpu/drm/sti/sti_hdmi.h b/drivers/gpu/drm/sti/sti_hdmi.h
+index ef3a945..119bc35 100644
+--- a/drivers/gpu/drm/sti/sti_hdmi.h
++++ b/drivers/gpu/drm/sti/sti_hdmi.h
+@@ -23,6 +23,13 @@ struct hdmi_phy_ops {
+ 	void (*stop)(struct sti_hdmi *hdmi);
+ };
+ 
++struct hdmi_audio_params {
++	bool enabled;
++	unsigned int sample_width;
++	unsigned int sample_rate;
++	struct hdmi_audio_infoframe cea;
++};
++
+ /* values for the framing mode property */
+ enum sti_hdmi_modes {
+ 	HDMI_MODE_HDMI,
+@@ -67,6 +74,9 @@ static const struct drm_prop_enum_list colorspace_mode_names[] = {
+  * @ddc_adapt: i2c ddc adapter
+  * @colorspace: current colorspace selected
+  * @hdmi_mode: select framing for HDMI or DVI
++ * @audio_pdev: ASoC hdmi-codec platform device
++ * @audio: hdmi audio parameters.
++ * @drm_connector: hdmi connector
+  */
+ struct sti_hdmi {
+ 	struct device dev;
+@@ -89,6 +99,9 @@ struct sti_hdmi {
+ 	struct i2c_adapter *ddc_adapt;
+ 	enum hdmi_colorspace colorspace;
+ 	enum sti_hdmi_modes hdmi_mode;
++	struct platform_device *audio_pdev;
++	struct hdmi_audio_params audio;
++	struct drm_connector *drm_connector;
+ };
+ 
+ u32 hdmi_read(struct sti_hdmi *hdmi, int offset);
+diff --git a/drivers/gpu/drm/sti/sti_hqvdp.c b/drivers/gpu/drm/sti/sti_hqvdp.c
+index e05b0dc..b10bb23 100644
+--- a/drivers/gpu/drm/sti/sti_hqvdp.c
++++ b/drivers/gpu/drm/sti/sti_hqvdp.c
+@@ -325,7 +325,7 @@ struct sti_hqvdp_cmd {
+  * @clk_pix_main:      pix main clock
+  * @reset:             reset control
+  * @vtg_nb:            notifier to handle VTG Vsync
+- * @btm_field_pending: is there any bottom field (interlaced frame) to display
++ * @nxt_field_pending: is there any other field (interlaced frame) to display
+  * @hqvdp_cmd:         buffer of commands
+  * @hqvdp_cmd_paddr:   physical address of hqvdp_cmd
+  * @vtg:               vtg for main data path
+@@ -340,7 +340,7 @@ struct sti_hqvdp {
+ 	struct clk *clk_pix_main;
+ 	struct reset_control *reset;
+ 	struct notifier_block vtg_nb;
+-	bool btm_field_pending;
++	bool nxt_field_pending;
+ 	void *hqvdp_cmd;
+ 	u32 hqvdp_cmd_paddr;
+ 	struct sti_vtg *vtg;
+@@ -784,7 +784,7 @@ static void sti_hqvdp_disable(struct sti_hqvdp *hqvdp)
+  * @evt: event message
+  * @data: private data
+  *
+- * Handle VTG Vsync event, display pending bottom field
++ * Handle VTG Vsync event, display next field
+  *
+  * RETURNS:
+  * 0 on success.
+@@ -792,8 +792,8 @@ static void sti_hqvdp_disable(struct sti_hqvdp *hqvdp)
+ int sti_hqvdp_vtg_cb(struct notifier_block *nb, unsigned long evt, void *data)
+ {
+ 	struct sti_hqvdp *hqvdp = container_of(nb, struct sti_hqvdp, vtg_nb);
+-	int btm_cmd_offset, top_cmd_offest;
+-	struct sti_hqvdp_cmd *btm_cmd, *top_cmd;
++	int next_cmd_offset, curr_cmd_offest;
++	struct sti_hqvdp_cmd *next_cmd, *curr_cmd;
+ 
+ 	if ((evt != VTG_TOP_FIELD_EVENT) && (evt != VTG_BOTTOM_FIELD_EVENT)) {
+ 		DRM_DEBUG_DRIVER("Unknown event\n");
+@@ -808,31 +808,41 @@ int sti_hqvdp_vtg_cb(struct notifier_block *nb, unsigned long evt, void *data)
+ 		sti_hqvdp_disable(hqvdp);
+ 	}
+ 
+-	if (hqvdp->btm_field_pending) {
+-		/* Create the btm field command from the current one */
+-		btm_cmd_offset = sti_hqvdp_get_free_cmd(hqvdp);
+-		top_cmd_offest = sti_hqvdp_get_curr_cmd(hqvdp);
+-		if ((btm_cmd_offset == -1) || (top_cmd_offest == -1)) {
++	if (hqvdp->nxt_field_pending) {
++		/* Create the next field command from the current one */
++		next_cmd_offset = sti_hqvdp_get_free_cmd(hqvdp);
++		curr_cmd_offest = sti_hqvdp_get_curr_cmd(hqvdp);
++		if ((next_cmd_offset == -1) || (curr_cmd_offest == -1)) {
+ 			DRM_DEBUG_DRIVER("Warning: no cmd, will skip field\n");
+ 			return -EBUSY;
+ 		}
+ 
+-		btm_cmd = hqvdp->hqvdp_cmd + btm_cmd_offset;
+-		top_cmd = hqvdp->hqvdp_cmd + top_cmd_offest;
+-
+-		memcpy(btm_cmd, top_cmd, sizeof(*btm_cmd));
+-
+-		btm_cmd->top.config = TOP_CONFIG_INTER_BTM;
+-		btm_cmd->top.current_luma +=
+-				btm_cmd->top.luma_src_pitch / 2;
+-		btm_cmd->top.current_chroma +=
+-				btm_cmd->top.chroma_src_pitch / 2;
++		next_cmd = hqvdp->hqvdp_cmd + next_cmd_offset;
++		curr_cmd = hqvdp->hqvdp_cmd + curr_cmd_offest;
++
++		memcpy(next_cmd, curr_cmd, sizeof(*next_cmd));
++
++		if (curr_cmd->top.config == TOP_CONFIG_INTER_TOP) {
++			/* Display the bottom field now */
++			next_cmd->top.config = TOP_CONFIG_INTER_BTM;
++			next_cmd->top.current_luma +=
++					next_cmd->top.luma_src_pitch / 2;
++			next_cmd->top.current_chroma +=
++					next_cmd->top.chroma_src_pitch / 2;
++		} else {
++			/* Display the top field now */
++			next_cmd->top.config = TOP_CONFIG_INTER_TOP;
++			next_cmd->top.current_luma -=
++					next_cmd->top.luma_src_pitch / 2;
++			next_cmd->top.current_chroma -=
++					next_cmd->top.chroma_src_pitch / 2;
++		}
+ 
+ 		/* Post the command to mailbox */
+-		writel(hqvdp->hqvdp_cmd_paddr + btm_cmd_offset,
+-				hqvdp->regs + HQVDP_MBX_NEXT_CMD);
++		writel(hqvdp->hqvdp_cmd_paddr + next_cmd_offset,
++		       hqvdp->regs + HQVDP_MBX_NEXT_CMD);
+ 
+-		hqvdp->btm_field_pending = false;
++		hqvdp->nxt_field_pending = false;
+ 
+ 		dev_dbg(hqvdp->dev, "%s Posted command:0x%x\n",
+ 				__func__, hqvdp->hqvdp_cmd_paddr);
+@@ -1079,7 +1089,7 @@ static int sti_hqvdp_atomic_check(struct drm_plane *drm_plane,
+ 			return -EINVAL;
+ 		}
+ 
+-		/* Register VTG Vsync callback to handle bottom fields */
++		/* Register VTG Vsync callback to handle bottom/top fields */
+ 		if (sti_vtg_register_client(hqvdp->vtg,
+ 					    &hqvdp->vtg_nb,
+ 					    crtc)) {
+@@ -1177,8 +1187,14 @@ static void sti_hqvdp_atomic_update(struct drm_plane *drm_plane,
+ 
+ 	/* Handle interlaced */
+ 	if (fb->flags & DRM_MODE_FB_INTERLACED) {
+-		/* Top field to display */
+-		cmd->top.config = TOP_CONFIG_INTER_TOP;
++		/* Top or bottom field */
++		if (fb->flags & DRM_MODE_FB_BFF) {
++			cmd->top.config = TOP_CONFIG_INTER_BTM;
++			cmd->top.current_luma += cmd->top.luma_src_pitch;
++			cmd->top.current_chroma += cmd->top.chroma_src_pitch;
++		} else {
++			cmd->top.config = TOP_CONFIG_INTER_TOP;
++		}
+ 
+ 		/* Update pitches and vert size */
+ 		cmd->top.input_frame_size = (src_h / 2) << 16 | src_w;
+@@ -1205,7 +1221,7 @@ static void sti_hqvdp_atomic_update(struct drm_plane *drm_plane,
+ 
+ 	/* Interlaced : get ready to display the bottom field at next Vsync */
+ 	if (fb->flags & DRM_MODE_FB_INTERLACED)
+-		hqvdp->btm_field_pending = true;
++		hqvdp->nxt_field_pending = true;
+ 
+ 	dev_dbg(hqvdp->dev, "%s Posted command:0x%x\n",
+ 		__func__, hqvdp->hqvdp_cmd_paddr + cmd_offset);
+diff --git a/drivers/gpu/drm/sti/sti_mixer.c b/drivers/gpu/drm/sti/sti_mixer.c
+index e7425c3..040abfe 100644
+--- a/drivers/gpu/drm/sti/sti_mixer.c
++++ b/drivers/gpu/drm/sti/sti_mixer.c
+@@ -245,7 +245,7 @@ static void sti_mixer_set_background_area(struct sti_mixer *mixer,
+ 
+ int sti_mixer_set_plane_depth(struct sti_mixer *mixer, struct sti_plane *plane)
+ {
+-	int plane_id, depth = plane->zorder;
++	int plane_id, depth = plane->drm_plane.state->normalized_zpos + 1;
+ 	unsigned int i;
+ 	u32 mask, val;
+ 
+diff --git a/drivers/gpu/drm/sti/sti_plane.c b/drivers/gpu/drm/sti/sti_plane.c
+index f10c98d..1260d25 100644
+--- a/drivers/gpu/drm/sti/sti_plane.c
++++ b/drivers/gpu/drm/sti/sti_plane.c
+@@ -14,15 +14,6 @@
+ #include "sti_drv.h"
+ #include "sti_plane.h"
+ 
+-/* (Background) < GDP0 < GDP1 < HQVDP0 < GDP2 < GDP3 < (ForeGround) */
+-enum sti_plane_desc sti_plane_default_zorder[] = {
+-	STI_GDP_0,
+-	STI_GDP_1,
+-	STI_HQVDP_0,
+-	STI_GDP_2,
+-	STI_GDP_3,
+-};
+-
+ const char *sti_plane_to_str(struct sti_plane *plane)
+ {
+ 	switch (plane->desc) {
+@@ -114,69 +105,70 @@ static void sti_plane_destroy(struct drm_plane *drm_plane)
+ 	drm_plane_cleanup(drm_plane);
+ }
+ 
+-static int sti_plane_set_property(struct drm_plane *drm_plane,
+-				  struct drm_property *property,
+-				  uint64_t val)
++static int sti_plane_get_default_zpos(enum drm_plane_type type)
+ {
+-	struct drm_device *dev = drm_plane->dev;
+-	struct sti_private *private = dev->dev_private;
+-	struct sti_plane *plane = to_sti_plane(drm_plane);
+-
+-	DRM_DEBUG_DRIVER("\n");
+-
+-	if (property == private->plane_zorder_property) {
+-		plane->zorder = val;
++	switch (type) {
++	case DRM_PLANE_TYPE_CURSOR:
++		return 255;
++	case DRM_PLANE_TYPE_OVERLAY:
++		return 1;
++	case DRM_PLANE_TYPE_PRIMARY:
++	default:
+ 		return 0;
+ 	}
++}
+ 
+-	return -EINVAL;
++static void sti_plane_reset(struct drm_plane *plane)
++{
++	drm_atomic_helper_plane_reset(plane);
++	plane->state->zpos = sti_plane_get_default_zpos(plane->type);
+ }
+ 
+-static void sti_plane_attach_zorder_property(struct drm_plane *drm_plane)
++static void sti_plane_attach_zorder_property(struct drm_plane *drm_plane,
++					     enum drm_plane_type type)
+ {
+ 	struct drm_device *dev = drm_plane->dev;
+-	struct sti_private *private = dev->dev_private;
+-	struct sti_plane *plane = to_sti_plane(drm_plane);
+ 	struct drm_property *prop;
++	int zpos = sti_plane_get_default_zpos(type);
+ 
+-	prop = private->plane_zorder_property;
+-	if (!prop) {
+-		prop = drm_property_create_range(dev, 0, "zpos", 1,
+-						 GAM_MIXER_NB_DEPTH_LEVEL);
+-		if (!prop)
++	if (!dev->mode_config.zpos_property)
++		if (drm_mode_create_zpos_property(dev))
+ 			return;
+ 
+-		private->plane_zorder_property = prop;
+-	}
++	if (!dev->mode_config.zpos_immutable_property)
++		if (drm_mode_create_zpos_immutable_property(dev))
++			return;
+ 
+-	drm_object_attach_property(&drm_plane->base, prop, plane->zorder);
++	switch (type) {
++	case DRM_PLANE_TYPE_CURSOR:
++		prop = dev->mode_config.zpos_immutable_property;
++		break;
++	case DRM_PLANE_TYPE_OVERLAY:
++		prop = dev->mode_config.zpos_property;
++		break;
++	case DRM_PLANE_TYPE_PRIMARY:
++	default:
++		prop = dev->mode_config.zpos_immutable_property;
++	}
++	drm_object_attach_property(&drm_plane->base, prop, zpos);
+ }
+ 
+ void sti_plane_init_property(struct sti_plane *plane,
+ 			     enum drm_plane_type type)
+ {
+-	unsigned int i;
+-
+-	for (i = 0; i < ARRAY_SIZE(sti_plane_default_zorder); i++)
+-		if (sti_plane_default_zorder[i] == plane->desc)
+-			break;
+-
+-	plane->zorder = i + 1;
+-
+-	if (type == DRM_PLANE_TYPE_OVERLAY)
+-		sti_plane_attach_zorder_property(&plane->drm_plane);
++	sti_plane_attach_zorder_property(&plane->drm_plane, type);
+ 
+-	DRM_DEBUG_DRIVER("drm plane:%d mapped to %s with zorder:%d\n",
++	DRM_DEBUG_DRIVER("drm plane:%d mapped to %s\n",
+ 			 plane->drm_plane.base.id,
+-			 sti_plane_to_str(plane), plane->zorder);
++			 sti_plane_to_str(plane));
+ }
+ 
+ struct drm_plane_funcs sti_plane_helpers_funcs = {
+ 	.update_plane = drm_atomic_helper_update_plane,
+ 	.disable_plane = drm_atomic_helper_disable_plane,
+ 	.destroy = sti_plane_destroy,
+-	.set_property = sti_plane_set_property,
+-	.reset = drm_atomic_helper_plane_reset,
++	.reset = sti_plane_reset,
++	.set_property = drm_atomic_helper_plane_set_property,
+ 	.atomic_duplicate_state = drm_atomic_helper_plane_duplicate_state,
+ 	.atomic_destroy_state = drm_atomic_helper_plane_destroy_state,
+ };
+diff --git a/drivers/gpu/drm/sti/sti_plane.h b/drivers/gpu/drm/sti/sti_plane.h
+index c50a3b9..2747773 100644
+--- a/drivers/gpu/drm/sti/sti_plane.h
++++ b/drivers/gpu/drm/sti/sti_plane.h
+@@ -68,14 +68,12 @@ struct sti_fps_info {
+  * @plane:              drm plane it is bound to (if any)
+  * @desc:               plane type & id
+  * @status:             to know the status of the plane
+- * @zorder:             plane z-order
+  * @fps_info:           frame per second info
+  */
+ struct sti_plane {
+ 	struct drm_plane drm_plane;
+ 	enum sti_plane_desc desc;
+ 	enum sti_plane_status status;
+-	int zorder;
+ 	struct sti_fps_info fps_info;
+ };
+ 
+diff --git a/drivers/gpu/drm/sti/sti_vtg.c b/drivers/gpu/drm/sti/sti_vtg.c
+index 32c7986..1934233 100644
+--- a/drivers/gpu/drm/sti/sti_vtg.c
++++ b/drivers/gpu/drm/sti/sti_vtg.c
+@@ -65,7 +65,7 @@
+ #define HDMI_DELAY          (5)
+ 
+ /* Delay introduced by the DVO in nb of pixel */
+-#define DVO_DELAY           (2)
++#define DVO_DELAY           (7)
+ 
+ /* delay introduced by the Arbitrary Waveform Generator in nb of pixels */
+ #define AWG_DELAY_HD        (-9)
+diff --git a/include/drm/drm_crtc.h b/include/drm/drm_crtc.h
+index e0170bf..ab4f821 100644
+--- a/include/drm/drm_crtc.h
++++ b/include/drm/drm_crtc.h
+@@ -307,6 +307,7 @@ struct drm_plane_helper_funcs;
+  * @connectors_changed: connectors to this crtc have been updated
+  * @color_mgmt_changed: color management properties have changed (degamma or
+  *	gamma LUT or CSC matrix)
++ * @zpos_changed: zpos values of planes on this crtc have been updated
+  * @plane_mask: bitmask of (1 << drm_plane_index(plane)) of attached planes
+  * @connector_mask: bitmask of (1 << drm_connector_index(connector)) of attached connectors
+  * @encoder_mask: bitmask of (1 << drm_encoder_index(encoder)) of attached encoders
+@@ -341,6 +342,7 @@ struct drm_crtc_state {
+ 	bool active_changed : 1;
+ 	bool connectors_changed : 1;
+ 	bool color_mgmt_changed : 1;
++	bool zpos_changed : 1;
+ 
+ 	/* attached planes bitmask:
+ 	 * WARNING: transitional helpers do not maintain plane_mask so
+@@ -480,6 +482,9 @@ struct drm_crtc_funcs {
+ 	 */
+ 	void (*gamma_set)(struct drm_crtc *crtc, u16 *r, u16 *g, u16 *b,
+ 			  uint32_t start, uint32_t size);
++	/* Set color map of the CRTC */
++	void (*cmap_set)(struct drm_crtc *crtc, u16 *r, u16 *g, u16 *b,
++			 uint32_t start, uint32_t size);
+ 
+ 	/**
+ 	 * @destroy:
+@@ -722,6 +727,8 @@ struct drm_crtc_funcs {
+  * @funcs: CRTC control functions
+  * @gamma_size: size of gamma ramp
+  * @gamma_store: gamma ramp values
++ * @cmap_size: size of color map
++ * @cmap_store: color map values
+  * @helper_private: mid-layer private data
+  * @properties: property tracking for this CRTC
+  * @state: current atomic state for this CRTC
+@@ -774,6 +781,10 @@ struct drm_crtc {
+ 	uint32_t gamma_size;
+ 	uint16_t *gamma_store;
+ 
++	/* CRTC color map */
++	uint32_t cmap_size;
++	uint16_t *cmap_store;
++
+ 	/* if you are using the helper */
+ 	const struct drm_crtc_helper_funcs *helper_private;
+ 
+@@ -1263,6 +1274,9 @@ struct drm_connector {
+  *	plane (in 16.16)
+  * @src_w: width of visible portion of plane (in 16.16)
+  * @src_h: height of visible portion of plane (in 16.16)
++ * @zpos: priority of the given plane on crtc (optional)
++ * @normalized_zpos: normalized value of zpos: uniqe, range from 0 to
++ *	(number of planes - 1) for given crtc
+  * @state: backpointer to global drm_atomic_state
+  */
+ struct drm_plane_state {
+@@ -1283,6 +1297,10 @@ struct drm_plane_state {
+ 	/* Plane rotation */
+ 	unsigned int rotation;
+ 
++	/* Plane zpos */
++	unsigned int zpos;
++	unsigned int normalized_zpos;
++
+ 	struct drm_atomic_state *state;
+ };
+ 
+@@ -2123,6 +2141,8 @@ struct drm_mode_config {
+ 	struct drm_property *tile_property;
+ 	struct drm_property *plane_type_property;
+ 	struct drm_property *rotation_property;
++	struct drm_property *zpos_property;
++	struct drm_property *zpos_immutable_property;
+ 	struct drm_property *prop_src_x;
+ 	struct drm_property *prop_src_y;
+ 	struct drm_property *prop_src_w;
+@@ -2392,6 +2412,8 @@ extern void drm_framebuffer_remove(struct drm_framebuffer *fb);
+ extern void drm_framebuffer_cleanup(struct drm_framebuffer *fb);
+ extern void drm_framebuffer_unregister_private(struct drm_framebuffer *fb);
+ 
++extern void drm_cursor_release(struct drm_device *dev);
++
+ extern void drm_object_attach_property(struct drm_mode_object *obj,
+ 				       struct drm_property *property,
+ 				       uint64_t init_val);
+@@ -2443,6 +2465,7 @@ extern int drm_mode_connector_attach_encoder(struct drm_connector *connector,
+ 					     struct drm_encoder *encoder);
+ extern int drm_mode_crtc_set_gamma_size(struct drm_crtc *crtc,
+ 					 int gamma_size);
++extern int drm_mode_crtc_set_cmap_size(struct drm_crtc *crtc, int cmap_size);
+ extern struct drm_mode_object *drm_mode_object_find(struct drm_device *dev,
+ 		uint32_t id, uint32_t type);
+ 
+@@ -2494,6 +2517,10 @@ extern int drm_mode_gamma_get_ioctl(struct drm_device *dev,
+ 				    void *data, struct drm_file *file_priv);
+ extern int drm_mode_gamma_set_ioctl(struct drm_device *dev,
+ 				    void *data, struct drm_file *file_priv);
++extern int drm_mode_cmap_get_ioctl(struct drm_device *dev,
++				   void *data, struct drm_file *file_priv);
++extern int drm_mode_cmap_set_ioctl(struct drm_device *dev,
++				   void *data, struct drm_file *file_priv);
+ extern u8 drm_match_cea_mode(const struct drm_display_mode *to_match);
+ extern enum hdmi_picture_aspect drm_get_cea_aspect_ratio(const u8 video_code);
+ extern bool drm_detect_hdmi_monitor(struct edid *edid);
+@@ -2551,6 +2578,9 @@ extern struct drm_property *drm_mode_create_rotation_property(struct drm_device
+ extern unsigned int drm_rotation_simplify(unsigned int rotation,
+ 					  unsigned int supported_rotations);
+ 
++extern int drm_mode_create_zpos_property(struct drm_device *dev);
++extern int drm_mode_create_zpos_immutable_property(struct drm_device *dev);
++
+ /* Helpers */
+ 
+ static inline struct drm_plane *drm_plane_find(struct drm_device *dev,
+diff --git a/include/uapi/drm/drm.h b/include/uapi/drm/drm.h
+index a0ebfe7..d541047 100644
+--- a/include/uapi/drm/drm.h
++++ b/include/uapi/drm/drm.h
+@@ -790,6 +790,8 @@ struct drm_prime_handle {
+ #define DRM_IOCTL_MODE_ATOMIC		DRM_IOWR(0xBC, struct drm_mode_atomic)
+ #define DRM_IOCTL_MODE_CREATEPROPBLOB	DRM_IOWR(0xBD, struct drm_mode_create_blob)
+ #define DRM_IOCTL_MODE_DESTROYPROPBLOB	DRM_IOWR(0xBE, struct drm_mode_destroy_blob)
++#define DRM_IOCTL_MODE_GETCMAP		DRM_IOWR(0xBF, struct drm_mode_crtc_lut)
++#define DRM_IOCTL_MODE_SETCMAP		DRM_IOWR(0xC0, struct drm_mode_crtc_lut)
+ 
+ /**
+  * Device specific ioctls should only be in their respective headers
+diff --git a/include/uapi/drm/drm_mode.h b/include/uapi/drm/drm_mode.h
+index c021743..a38a162 100644
+--- a/include/uapi/drm/drm_mode.h
++++ b/include/uapi/drm/drm_mode.h
+@@ -149,6 +149,7 @@ struct drm_mode_crtc {
+ 	__u32 y; /**< y Position on the framebuffer */
+ 
+ 	__u32 gamma_size;
++	__u32 cmap_size;
+ 	__u32 mode_valid;
+ 	struct drm_mode_modeinfo mode;
+ };
+@@ -354,6 +355,7 @@ struct drm_mode_fb_cmd {
+ 
+ #define DRM_MODE_FB_INTERLACED	(1<<0) /* for interlaced framebuffers */
+ #define DRM_MODE_FB_MODIFIERS	(1<<1) /* enables ->modifer[] */
++#define DRM_MODE_FB_BFF		(1<<2) /* if interlaced, bottom field first */
+ 
+ struct drm_mode_fb_cmd2 {
+ 	__u32 fb_id;
+-- 
+1.9.1
+

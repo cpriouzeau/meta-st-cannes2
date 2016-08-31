@@ -1,0 +1,316 @@
+From 74553fbd185562ce7133d07da8871f9e013f2712 Mon Sep 17 00:00:00 2001
+From: Christophe Priouzeau <christophe.priouzeau@st.com>
+Date: Fri, 22 Jul 2016 14:51:20 +0200
+Subject: [PATCH 11/12] Others
+
+Signed-off-by: Christophe Priouzeau <christophe.priouzeau@st.com>
+---
+ drivers/ata/ahci_st.c     |   4 ++
+ drivers/spi/spi-st-ssc4.c |  49 ++++----------
+ include/linux/switch.h    | 162 ++++++++++++++++++++++++++++++++++++++++++++++
+ 3 files changed, 180 insertions(+), 35 deletions(-)
+ create mode 100644 include/linux/switch.h
+
+diff --git a/drivers/ata/ahci_st.c b/drivers/ata/ahci_st.c
+index 8ff428f..bc345f2 100644
+--- a/drivers/ata/ahci_st.c
++++ b/drivers/ata/ahci_st.c
+@@ -147,6 +147,7 @@ static struct scsi_host_template ahci_platform_sht = {
+ 
+ static int st_ahci_probe(struct platform_device *pdev)
+ {
++	struct device *dev = &pdev->dev;
+ 	struct st_ahci_drv_data *drv_data;
+ 	struct ahci_host_priv *hpriv;
+ 	int err;
+@@ -170,6 +171,9 @@ static int st_ahci_probe(struct platform_device *pdev)
+ 
+ 	st_ahci_configure_oob(hpriv->mmio);
+ 
++	of_property_read_u32(dev->of_node,
++			     "ports-implemented", &hpriv->force_port_map);
++
+ 	err = ahci_platform_init_host(pdev, hpriv, &st_ahci_port_info,
+ 				      &ahci_platform_sht);
+ 	if (err) {
+diff --git a/drivers/spi/spi-st-ssc4.c b/drivers/spi/spi-st-ssc4.c
+index f17c0ab..a3870aa 100644
+--- a/drivers/spi/spi-st-ssc4.c
++++ b/drivers/spi/spi-st-ssc4.c
+@@ -66,34 +66,9 @@ struct spi_st {
+ 	unsigned int		words_remaining;
+ 	unsigned int		baud;
+ 	struct completion	done;
++	bool gpio_requested;
+ };
+ 
+-static int spi_st_clk_enable(struct spi_st *spi_st)
+-{
+-	/*
+-	 * Current platforms use one of the core clocks for SPI and I2C.
+-	 * If we attempt to disable the clock, the system will hang.
+-	 *
+-	 * TODO: Remove this when platform supports power domains.
+-	 */
+-	return 0;
+-
+-	return clk_prepare_enable(spi_st->clk);
+-}
+-
+-static void spi_st_clk_disable(struct spi_st *spi_st)
+-{
+-	/*
+-	 * Current platforms use one of the core clocks for SPI and I2C.
+-	 * If we attempt to disable the clock, the system will hang.
+-	 *
+-	 * TODO: Remove this when platform supports power domains.
+-	 */
+-	return;
+-
+-	clk_disable_unprepare(spi_st->clk);
+-}
+-
+ /* Load the TX FIFO */
+ static void ssc_write_tx_fifo(struct spi_st *spi_st)
+ {
+@@ -227,9 +202,12 @@ static int spi_st_setup(struct spi_device *spi)
+ 		return -EINVAL;
+ 	}
+ 
+-	if (devm_gpio_request(&spi->dev, cs, dev_name(&spi->dev))) {
+-		dev_err(&spi->dev, "could not request gpio:%d\n", cs);
+-		return -EINVAL;
++	if (!spi_st->gpio_requested) {
++		if (devm_gpio_request(&spi->dev, cs, dev_name(&spi->dev))) {
++			dev_err(&spi->dev, "could not request gpio:%d\n", cs);
++			return -EINVAL;
++		}
++		spi_st->gpio_requested = true;
+ 	}
+ 
+ 	ret = gpio_direction_output(cs, spi->mode & SPI_CS_HIGH);
+@@ -342,13 +320,15 @@ static int spi_st_probe(struct platform_device *pdev)
+ 	master->bus_num			= pdev->id;
+ 	spi_st				= spi_master_get_devdata(master);
+ 
++	spi_st->gpio_requested = false;
++
+ 	spi_st->clk = devm_clk_get(&pdev->dev, "ssc");
+ 	if (IS_ERR(spi_st->clk)) {
+ 		dev_err(&pdev->dev, "Unable to request clock\n");
+ 		return PTR_ERR(spi_st->clk);
+ 	}
+ 
+-	ret = spi_st_clk_enable(spi_st);
++	ret = clk_prepare_enable(spi_st->clk);
+ 	if (ret)
+ 		return ret;
+ 
+@@ -407,8 +387,7 @@ static int spi_st_probe(struct platform_device *pdev)
+ 	return 0;
+ 
+ clk_disable:
+-	spi_st_clk_disable(spi_st);
+-
++	clk_disable_unprepare(spi_st->clk);
+ 	return ret;
+ }
+ 
+@@ -417,7 +396,7 @@ static int spi_st_remove(struct platform_device *pdev)
+ 	struct spi_master *master = platform_get_drvdata(pdev);
+ 	struct spi_st *spi_st = spi_master_get_devdata(master);
+ 
+-	spi_st_clk_disable(spi_st);
++	clk_disable_unprepare(spi_st->clk);
+ 
+ 	pinctrl_pm_select_sleep_state(&pdev->dev);
+ 
+@@ -433,7 +412,7 @@ static int spi_st_runtime_suspend(struct device *dev)
+ 	writel_relaxed(0, spi_st->base + SSC_IEN);
+ 	pinctrl_pm_select_sleep_state(dev);
+ 
+-	spi_st_clk_disable(spi_st);
++	clk_disable_unprepare(spi_st->clk);
+ 
+ 	return 0;
+ }
+@@ -444,7 +423,7 @@ static int spi_st_runtime_resume(struct device *dev)
+ 	struct spi_st *spi_st = spi_master_get_devdata(master);
+ 	int ret;
+ 
+-	ret = spi_st_clk_enable(spi_st);
++	ret = clk_prepare_enable(spi_st->clk);
+ 	pinctrl_pm_select_default_state(dev);
+ 
+ 	return ret;
+diff --git a/include/linux/switch.h b/include/linux/switch.h
+new file mode 100644
+index 0000000..27ee87e
+--- /dev/null
++++ b/include/linux/switch.h
+@@ -0,0 +1,162 @@
++/*
++ * switch.h: Switch configuration API
++ *
++ * Copyright (C) 2008 Felix Fietkau <nbd@openwrt.org>
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License
++ * as published by the Free Software Foundation; either version 2
++ * of the License, or (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ */
++#ifndef _LINUX_SWITCH_H
++#define _LINUX_SWITCH_H
++
++#include <net/genetlink.h>
++#include <uapi/linux/switch.h>
++
++struct switch_dev;
++struct switch_op;
++struct switch_val;
++struct switch_attr;
++struct switch_attrlist;
++struct switch_led_trigger;
++
++int register_switch(struct switch_dev *dev, struct net_device *netdev);
++void unregister_switch(struct switch_dev *dev);
++
++/**
++ * struct switch_attrlist - attribute list
++ *
++ * @n_attr: number of attributes
++ * @attr: pointer to the attributes array
++ */
++struct switch_attrlist {
++	int n_attr;
++	const struct switch_attr *attr;
++};
++
++enum switch_port_speed {
++	SWITCH_PORT_SPEED_UNKNOWN = 0,
++	SWITCH_PORT_SPEED_10 = 10,
++	SWITCH_PORT_SPEED_100 = 100,
++	SWITCH_PORT_SPEED_1000 = 1000,
++};
++
++struct switch_port_link {
++	bool link;
++	bool duplex;
++	bool aneg;
++	bool tx_flow;
++	bool rx_flow;
++	enum switch_port_speed speed;
++};
++
++struct switch_port_stats {
++	unsigned long tx_bytes;
++	unsigned long rx_bytes;
++};
++
++/**
++ * struct switch_dev_ops - switch driver operations
++ *
++ * @attr_global: global switch attribute list
++ * @attr_port: port attribute list
++ * @attr_vlan: vlan attribute list
++ *
++ * Callbacks:
++ *
++ * @get_vlan_ports: read the port list of a VLAN
++ * @set_vlan_ports: set the port list of a VLAN
++ *
++ * @get_port_pvid: get the primary VLAN ID of a port
++ * @set_port_pvid: set the primary VLAN ID of a port
++ *
++ * @apply_config: apply all changed settings to the switch
++ * @reset_switch: resetting the switch
++ */
++struct switch_dev_ops {
++	struct switch_attrlist attr_global, attr_port, attr_vlan;
++
++	int (*get_vlan_ports)(struct switch_dev *dev, struct switch_val *val);
++	int (*set_vlan_ports)(struct switch_dev *dev, struct switch_val *val);
++
++	int (*get_port_pvid)(struct switch_dev *dev, int port, int *val);
++	int (*set_port_pvid)(struct switch_dev *dev, int port, int val);
++
++	int (*apply_config)(struct switch_dev *dev);
++	int (*reset_switch)(struct switch_dev *dev);
++
++	int (*get_port_link)(struct switch_dev *dev, int port,
++			     struct switch_port_link *link);
++	int (*get_port_stats)(struct switch_dev *dev, int port,
++			      struct switch_port_stats *stats);
++};
++
++struct switch_dev {
++	const struct switch_dev_ops *ops;
++	/* will be automatically filled */
++	char devname[IFNAMSIZ];
++
++	const char *name;
++	/* NB: either alias or netdev must be set */
++	const char *alias;
++	struct net_device *netdev;
++
++	int ports;
++	int vlans;
++	int cpu_port;
++
++	/* the following fields are internal for swconfig */
++	int id;
++	struct list_head dev_list;
++	unsigned long def_global, def_port, def_vlan;
++
++	struct mutex sw_mutex;
++	struct switch_port *portbuf;
++
++	char buf[128];
++
++#ifdef CONFIG_SWCONFIG_LEDS
++	struct switch_led_trigger *led_trigger;
++#endif
++};
++
++struct switch_port {
++	u32 id;
++	u32 flags;
++};
++
++struct switch_val {
++	const struct switch_attr *attr;
++	int port_vlan;
++	int len;
++	union {
++		const char *s;
++		u32 i;
++		struct switch_port *ports;
++	} value;
++};
++
++struct switch_attr {
++	int disabled;
++	int type;
++	const char *name;
++	const char *description;
++
++	int (*set)(struct switch_dev *dev, const struct switch_attr *attr,
++		   struct switch_val *val);
++	int (*get)(struct switch_dev *dev, const struct switch_attr *attr,
++		   struct switch_val *val);
++
++	/* for driver internal use */
++	int id;
++	int ofs;
++	int max;
++};
++
++#endif /* _LINUX_SWITCH_H */
+-- 
+1.9.1
+
