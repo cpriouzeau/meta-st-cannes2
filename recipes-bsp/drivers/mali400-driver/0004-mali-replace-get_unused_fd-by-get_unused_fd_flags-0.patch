@@ -1,0 +1,28 @@
+From 6a5aa988c6f812c53e3a3a49df6a19dfebc49697 Mon Sep 17 00:00:00 2001
+From: Christophe Priouzeau <christophe.priouzeau@st.com>
+Date: Thu, 21 Jul 2016 17:03:21 +0200
+Subject: [PATCH 4/4] mali: replace get_unused_fd() by get_unused_fd_flags(0)
+
+This patch replaces call to get_unused_fd() with equivalent call to
+get_unused_fd_flags(0) to preserve current behavior for existing code.
+Necessary for Android build.
+---
+ driver/src/devicedrv/mali/linux/mali_sync.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/driver/src/devicedrv/mali/linux/mali_sync.c b/driver/src/devicedrv/mali/linux/mali_sync.c
+index 8bec3a4..a6ec4d2 100755
+--- a/driver/src/devicedrv/mali/linux/mali_sync.c
++++ b/driver/src/devicedrv/mali/linux/mali_sync.c
+@@ -298,7 +298,7 @@ s32 mali_sync_fence_fd_alloc(struct sync_fence *sync_fence)
+ {
+ 	s32 fd = -1;
+ 
+-	fd = get_unused_fd();
++	fd = get_unused_fd_flags(0);
+ 	if (fd < 0) {
+ 		sync_fence_put(sync_fence);
+ 		return -1;
+-- 
+1.9.1
+
