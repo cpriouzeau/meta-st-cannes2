@@ -43,7 +43,7 @@ To download software
     repo sync
 
    cd layers
-   git clone https://github.com/cpriouzeau/meta-st-cannes2.git
+   git clone https://github.com/cpriouzeau/meta-st-cannes2.git -b jethro
 
 
 
