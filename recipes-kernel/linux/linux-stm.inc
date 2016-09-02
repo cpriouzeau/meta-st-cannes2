@@ -178,25 +178,6 @@ python do_loadaddrcheck() {
         bb.fatal('Missing STM_KERNEL_LOADADDR value for STM kernel build: please define it in your machine.')
 }
 
-# ---------------------------------------------------------------------
-# Support checking the kernel size since some kernels need to reside in partitions
-# with a fixed length or there is a limit in transferring the kernel to memory
-#
-python do_sizecheck() {
-    if d.getVar('KERNEL_IMAGE_MAXSIZE'):
-        if not d.getVar('KERNEL_IMAGE_MAXSIZE').isdigit():
-            bb.fatal('Invalid KERNEL_IMAGE_MAXSIZE: %s, should be an integer (The unit is Kbytes)' % d.getVar('KERNEL_IMAGE_MAXSIZE'))
-        else:
-            kernel_max_size = int(d.getVar('KERNEL_IMAGE_MAXSIZE'))
-            image_path = '${B}/arch/${ARCH}/boot/Image'
-            if not os.path.exists(image_path):
-                bb.fatal('Cannot check kernel image size: missing "Image" in kernel build folder')
-            else:
-                kernel_size = os.path.getsize(image_path) >> 10
-                if kernel_size >= kernel_max_size:
-                    bb.warn('KERNEL Issue: this kernel (size=%s(K) > %s(K)) is too big for your device. Please reduce the size of the kernel by making more of it modular.' % (kernel_size, kernel_max_size))
-}
-
 PACKAGES =+ "kernel-headers"
 FILES_kernel-headers = "${exec_prefix}/src/linux*"
 FILES_kernel-image  += "boot/ ${KERNEL_IMAGEDEST}"
