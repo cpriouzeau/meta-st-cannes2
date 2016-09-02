@@ -21,14 +21,14 @@ Configuration via Openembedded
 Layer depends:
     URI: git://git.openembedded.org/openembedded-core
     layers: meta
-    branch: jethro
+    branch: krogoth
 
     URI: git://git.openembedded.org/meta-openembedded
     layers: meta-oe
-    branch: jethro
+    branch: krogoth
 
     URI: git://git.openembedded.org/bitbake
-    branch: 1.28
+    branch: 1.30
 
 Machine to used with Meta-st-canne2 layer:
     sti-96bc2
@@ -39,11 +39,11 @@ Configuration via Linaro
 To download software
     mkdir sti-96bc2
     cd sti-96bc2
-    repo init -u https://github.com/96boards/oe-rpb-manifest.git -b jethro
+    repo init -u https://github.com/96boards/oe-rpb-manifest.git -b krogoth
     repo sync
 
    cd layers
-   git clone https://github.com/cpriouzeau/meta-st-cannes2.git
+   git clone https://github.com/cpriouzeau/meta-st-cannes2.git -b krogoth
 
 
 
