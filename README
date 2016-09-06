@@ -1,10 +1,7 @@
 Meta-st-canne2
 ===========
 
-Meta-st-canne2 is a layer containing the st bsp metadata for current versions
-of OpenSDK.
-
-This layer depends on meta-opensdk to provide desired framework.
+Meta-st-canne2 is a layer containing the st bsp metadata.
 
 This layer relies on OpenEmbedded build system that is provided through
 Bitbake and OpenEmbedded-Core layers or Poky layer all part of the Yocto Project
@@ -42,9 +39,8 @@ To download software
     repo init -u https://github.com/96boards/oe-rpb-manifest.git -b krogoth
     repo sync
 
-   cd layers
-   git clone https://github.com/cpriouzeau/meta-st-cannes2.git -b krogoth
-
+    cd layers
+    git clone https://github.com/cpriouzeau/meta-st-cannes2.git -b krogoth
 
 
 To compile software
