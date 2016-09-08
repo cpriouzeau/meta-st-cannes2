@@ -18,10 +18,12 @@ SRC_URI[md5sum] = "86800f52a1a66a435318a7ee5e4801cc"
 SRC_URI[sha256sum] = "73c614884ee42b655ff1d033d58f7b121172bb659b959ba62db40473afdd979c"
 
 # patch for ST plaftorm
-SRC_URI += " file://0001-Add-license.patch "
-SRC_URI += " file://0002-platform-add-ST-platform-supporting-device-tree.patch "
-SRC_URI += " file://0003-mali-replace-PAGE_CACHE_-and-page_cache_-get-release.patch "
-SRC_URI += " file://0004-mali-replace-get_unused_fd-by-get_unused_fd_flags-0.patch "
+SRC_URI += " \
+    file://0001-Add-license.patch \
+    file://0002-platform-add-ST-platform-supporting-device-tree.patch \
+    file://0003-mali-replace-PAGE_CACHE_-and-page_cache_-get-release.patch\
+    file://0004-mali-replace-get_unused_fd-by-get_unused_fd_flags-0.patch \
+    "
 
 S = "${WORKDIR}/DX910-SW-99002-r6p1-01rel0/driver"
 
