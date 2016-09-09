@@ -8,12 +8,13 @@ SRCREV = "b665e50e1f4ecf818bbb955bef0e215a278f0304"
 
 S = "${WORKDIR}/git"
 
-PV = "1.0-git${SRCPV}"
+PV = "1.0-git"
 
 # add support for ARM platform
 SRC_URI =+ "file://0001-ARM-Support.patch"
 
 DEPENDS = "virtual/kernel"
+COMPATIBLE_MACHINE = "sti-96bc2"
 
 inherit module
 
