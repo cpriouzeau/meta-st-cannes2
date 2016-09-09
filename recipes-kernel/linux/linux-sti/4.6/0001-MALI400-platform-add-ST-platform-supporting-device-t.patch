@@ -1,0 +1,218 @@
+From 89e28ec569ef3f4230fcad0fcb61e341389ce949 Mon Sep 17 00:00:00 2001
+From: Christophe Priouzeau <christophe.priouzeau@st.com>
+Date: Fri, 9 Sep 2016 09:43:41 +0200
+Subject: [PATCH 1/5] MALI400: platform: add ST platform supporting device tree
+
+Add the initial ST Mali configuration for the Mali driver.
+It provide the abilities to:
+
+- register the maximum limit of memory the Mali GPU driver can allocate
+from the OS. This size is configurable using the "mali-mem-size" DT
+entry within each board DT configuration. If not provided a default
+maximum of 576MiB is used by the driver.
+
+- set the GPU clock rate. The default GPU clock rate is 350MHz. It can
+be set to a specific rate by means of the DT entry labeled as
+gpu-clk-rate.
+
+- register the "Validation memory range". The Mali "Validation memory
+range" is used to validate phys addresses of the memory used by the
+driver. Mali validation range is configurable at device tree level. The
+default value can be overridden by device tree settings.
+
+
+Signed-off-by: Christophe Priouzeau <christophe.priouzeau@st.com>
+---
+ drivers/gpu/arm/utgard/Kbuild           |   5 +-
+ drivers/gpu/arm/utgard/platform/st/st.c | 163 ++++++++++++++++++++++++++++++++
+ 2 files changed, 165 insertions(+), 3 deletions(-)
+ create mode 100644 drivers/gpu/arm/utgard/platform/st/st.c
+
+diff --git a/drivers/gpu/arm/utgard/Kbuild b/drivers/gpu/arm/utgard/Kbuild
+index 42f36f4..ae85769 100755
+--- a/drivers/gpu/arm/utgard/Kbuild
++++ b/drivers/gpu/arm/utgard/Kbuild
+@@ -121,9 +121,8 @@ mali-y += \
+ 	linux/mali_pmu_power_up_down.o \
+ 	__malidrv_build_info.o
+ 
+-ifneq ($(MALI_PLATFORM_FILES),)
+-	mali-y += $(MALI_PLATFORM_FILES:.c=.o)
+-endif
++EXTRA_DEFINES += -DMALI_FAKE_PLATFORM_DEVICE=1
++mali-y += platform/st/st.o
+ 
+ mali-$(CONFIG_MALI400_PROFILING) += linux/mali_ukk_profiling.o
+ mali-$(CONFIG_MALI400_PROFILING) += linux/mali_osk_profiling.o
+diff --git a/drivers/gpu/arm/utgard/platform/st/st.c b/drivers/gpu/arm/utgard/platform/st/st.c
+new file mode 100644
+index 0000000..b869dd9
+--- /dev/null
++++ b/drivers/gpu/arm/utgard/platform/st/st.c
+@@ -0,0 +1,163 @@
++/*
++ * Copyright (C) 2010, 2012-2015 ARM Limited. All rights reserved.
++ *
++ * This program is free software and is provided to you under the terms of the
++ * GNU General Public License version 2 as published by the Free Software
++ * Foundation, and any use by you of this program is subject to the terms of
++ * such GNU licence.
++ *
++ * A copy of the licence is included with the program, and can also be obtained
++ * from Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
++ * MA  02110-1301, USA.
++ */
++
++/**
++ * @file st.c
++ * Platform specific Mali driver functions for:
++ * - ST platforms using Device Tree (CONFIG_MALI_DT)
++ */
++
++#include "mali_executor.h"
++#include "mali_kernel_common.h"
++#include "mali_kernel_linux.h"
++
++#include <asm/io.h>
++
++#include <linux/clk.h>
++#include <linux/dma-mapping.h>
++#include <linux/mali/mali_utgard.h>
++#include <linux/moduleparam.h>
++#include <linux/of.h>
++#include <linux/platform_device.h>
++#include <linux/pm.h>
++#ifdef CONFIG_PM_RUNTIME
++#include <linux/pm_runtime.h>
++#endif
++#include <linux/reset.h>
++#include <linux/version.h>
++
++struct clk *gpu_clk;
++struct reset_control *gpu_reset;
++
++static struct mali_gpu_device_data mali_gpu_data = {
++	.control_interval = 1000, /* 1000ms */
++	.utilization_callback = NULL,
++	.get_clock_info = NULL,
++	.get_freq = NULL,
++	.set_freq = NULL,
++};
++
++#ifndef CONFIG_MALI_DT
++
++#error Mali400-driver for ST platform only support device tree configuration. \
++       Please enable CONFIG_MALI_DT and rebuild the mali400-driver.
++
++#else
++
++int mali_platform_device_init(struct platform_device *device)
++{
++	struct device_node *np = device->dev.of_node;
++	unsigned int size, rate;
++	int err = -1;
++
++	gpu_clk = devm_clk_get(&device->dev, "gpu-clk");
++	if (IS_ERR(gpu_clk)) {
++		MALI_PRINT_ERROR(("GPU clk not found\n"));
++		return -EEXIST;
++	}
++	/* Shared memory management is always enabled by default,
++	 * then we must provide a maximum memory size to the drive.
++	 * Use a default 576MiB in case no data is incoming from
++	 * board DT configuration.
++	 * See the binding documentation here:
++	 * - Documentation/devicetree/bindings/sti/mali.txt
++	 */
++	if (of_property_read_u32(np, "mali-mem-size", &size) == 0)
++		mali_gpu_data.shared_mem_size = size;
++	else
++		mali_gpu_data.shared_mem_size = 0x24000000;
++
++	/* The Mali "Validation memory range" is used to validate phys addresses
++	 * of the memory used by the driver. However, it is difficult to
++	 * construct a simple address range which can cope with differing
++	 * amounts of memory in both LMI0 and LMI1. Then, allowed access to
++	 * all LMIs.
++	*/
++	if (of_property_read_u32(np, "mali-fb-start", &size) == 0)
++		mali_gpu_data.fb_start = size;
++	else
++		mali_gpu_data.fb_start = 0x40000000;
++
++	if (of_property_read_u32(np, "mali-fb-size", &size) == 0)
++		mali_gpu_data.fb_size = size;
++	else
++		mali_gpu_data.fb_size = 0xC0000000;
++
++	err = platform_device_add_data(device, &mali_gpu_data,
++				       sizeof(mali_gpu_data));
++
++	if (0 == err) {
++		MALI_DEBUG_PRINT(3, ("Mali PM: clock on\n"));
++		clk_prepare_enable(gpu_clk);
++
++		/* In case no specific GPU clock rate was declared into DT node
++		 * we set the default 350Mhz for all family SoCs.
++		 */
++		if (of_property_read_u32(np, "gpu-clk-rate", &rate) == 0)
++			clk_set_rate(gpu_clk, rate);
++		else
++			clk_set_rate(gpu_clk, 350000000);
++
++		MALI_DEBUG_PRINT(2, ("Mali GPU clock running at %dMHz\n",
++			clk_get_rate(gpu_clk)/1000000));
++
++		/* Add default Mali Power Runtime configuration */
++#ifdef CONFIG_PM_RUNTIME
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 37))
++		pm_runtime_set_autosuspend_delay(&(device->dev), 1000);
++		pm_runtime_use_autosuspend(&(device->dev));
++		pm_runtime_set_active(&device->dev);
++#endif
++		pm_runtime_enable(&(device->dev));
++		if (pm_runtime_enabled(&device->dev))
++			MALI_DEBUG_PRINT(2,
++					 ("Mali registered in power domain\n"));
++#endif
++	}
++
++	gpu_reset = devm_reset_control_get(&device->dev, "gpu");
++	/* Take gpu out of reset */
++	if (!IS_ERR(gpu_reset))
++		reset_control_deassert(gpu_reset);
++
++	return err;
++}
++
++int mali_platform_device_deinit(struct platform_device *device)
++{
++	MALI_IGNORE(device);
++
++	MALI_DEBUG_PRINT(4, ("mali_platform_device_deinit() called\n"));
++
++#ifdef CONFIG_PM_RUNTIME
++	if (!pm_runtime_status_suspended(&device->dev)) {
++		MALI_DEBUG_PRINT(3, ("Mali PM: clock off\n"));
++		clk_disable_unprepare(gpu_clk);
++	}
++
++	if (pm_runtime_enabled(&device->dev)) {
++		MALI_DEBUG_PRINT(2, ("Mali power domain unregistering\n"));
++		pm_runtime_disable(&device->dev);
++	}
++#else
++	clk_disable_unprepare(gpu_clk);
++#endif
++
++	/* Put gpu in reset */
++	reset_control_assert(gpu_reset);
++
++	return 0;
++}
++
++#endif /* CONFIG_MALI_DT */
++
+-- 
+1.9.1
+

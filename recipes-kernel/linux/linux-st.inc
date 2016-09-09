@@ -8,27 +8,6 @@ inherit kernel
 LINUX_VERSION ?= "4.6"
 B = "${WORKDIR}/linux-${MACHINE}-standard-build"
 
-#Restore do_patch task to allow perf proper build when using externalsrc class
-SRCTREECOVEREDTASKS = "do_unpack do_fetch"
-
-#Do not deploy kernel module with specfic tarball
-MODULE_TARBALL_DEPLOY = "0"
-
-# -------------------------------------------------------------
-# Enable src link creation when using externalsrc class to avoid
-# kernel source misalignment
-#
-python external_src_link_creation() {
-    import os
-    if d.getVar("EXTERNALSRC", True):
-        s = d.getVar("S", True)
-        kernsrc = d.getVar("STAGING_KERNEL_DIR", True)
-        bb.utils.mkdirhier(kernsrc)
-        bb.utils.remove(kernsrc, recurse=True)
-        os.symlink(s, kernsrc)
-}
-do_configure[prefuncs] += "external_src_link_creation"
-
 # -------------------------------------------------------------
 # DTB
 do_compile_kerneldtb() {
@@ -98,7 +77,6 @@ do_configure_prepend() {
     fi
 
     yes '' | oe_runmake -C ${S} O=${B} CC="${KERNEL_CC}" LD="${KERNEL_LD}" oldconfig
-    #oe_runmake -C ${S} O=${B} savedefconfig && cp ${B}/defconfig ${WORKDIR}/defconfig.saved
 }
 
 # ---------------------------------------------------------------------

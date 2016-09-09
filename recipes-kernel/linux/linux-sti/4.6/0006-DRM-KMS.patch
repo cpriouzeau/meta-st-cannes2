@@ -1,4 +1,4 @@
-From eb25565d2b264efeee4d08385e2b5f37356fba73 Mon Sep 17 00:00:00 2001
+From c8fbbf4796aaf971e7a84acc0a8f67e3da21e88f Mon Sep 17 00:00:00 2001
 From: Christophe Priouzeau <christophe.priouzeau@st.com>
 Date: Fri, 22 Jul 2016 14:48:24 +0200
 Subject: [PATCH 06/12] DRM KMS
@@ -25,7 +25,6 @@ Signed-off-by: Christophe Priouzeau <christophe.priouzeau@st.com>
  drivers/gpu/drm/sti/sti_plane.h         |   2 -
  drivers/gpu/drm/sti/sti_vtg.c           |   2 +-
  include/drm/drm_crtc.h                  |  30 ++++
- include/uapi/drm/drm.h                  |   2 +
  include/uapi/drm/drm_mode.h             |   2 +
  22 files changed, 979 insertions(+), 126 deletions(-)
  create mode 100644 drivers/gpu/drm/panel/panel-hsd101pww.c
@@ -226,14 +225,6 @@ index f30de80..a5f6db1 100644
  DEFINE_WW_CLASS(crtc_ww_class);
  
  static unsigned int drm_num_crtcs(struct drm_device *dev)
-@@ -2000,6 +2022,7 @@ int drm_mode_getcrtc(struct drm_device *dev,
- 
- 	drm_modeset_lock_crtc(crtc, crtc->primary);
- 	crtc_resp->gamma_size = crtc->gamma_size;
-+	crtc_resp->cmap_size = crtc->cmap_size;
- 	if (crtc->primary->fb)
- 		crtc_resp->fb_id = crtc->primary->fb->base.id;
- 	else
 @@ -3360,7 +3383,8 @@ internal_framebuffer_create(struct drm_device *dev,
  	struct drm_framebuffer *fb;
  	int ret;
@@ -244,182 +235,6 @@ index f30de80..a5f6db1 100644
  		DRM_DEBUG_KMS("bad framebuffer flags 0x%08x\n", r->flags);
  		return ERR_PTR(-EINVAL);
  	}
-@@ -5336,6 +5360,175 @@ out:
- }
- 
- /**
-+ * drm_mode_crtc_set_cmap_size - set the color map size
-+ * @crtc: CRTC to set the color map size for
-+ * @cmpa_size: size of the color map
-+ *
-+ * Drivers which support color map should set this to the supported color map
-+ * size when initializing the CRTC. Currently the drm core only supports a
-+ * fixed color map size.
-+ *
-+ * Returns:
-+ * Zero on success, negative errno on failure.
-+ */
-+int drm_mode_crtc_set_cmap_size(struct drm_crtc *crtc, int cmap_size)
-+{
-+	crtc->cmap_size = cmap_size;
-+
-+	crtc->cmap_store = kcalloc(cmap_size, sizeof(uint16_t) * 3, GFP_KERNEL);
-+	if (!crtc->cmap_store) {
-+		crtc->cmap_size = 0;
-+		return -ENOMEM;
-+	}
-+
-+	return 0;
-+}
-+EXPORT_SYMBOL(drm_mode_crtc_set_cmap_size);
-+
-+/**
-+ * drm_mode_cmap_set_ioctl - set the color map table
-+ * @dev: DRM device
-+ * @data: ioctl data
-+ * @file_priv: DRM file info
-+ *
-+ * Set the color map (for indexed color format) of a CRTC to the one passed in
-+ * by the user. Userspace can inquire the required color map size through
-+ * drm_mode_cmap_get_ioctl.
-+ *
-+ * Called by the user via ioctl.
-+ *
-+ * Returns:
-+ * Zero on success, negative errno on failure.
-+ */
-+int drm_mode_cmap_set_ioctl(struct drm_device *dev,
-+			    void *data, struct drm_file *file_priv)
-+{
-+	struct drm_mode_crtc_lut *crtc_lut = data;
-+	struct drm_crtc *crtc;
-+	void *r_base, *g_base, *b_base;
-+	int size;
-+	int ret = 0;
-+
-+	if (!drm_core_check_feature(dev, DRIVER_MODESET))
-+		return -EINVAL;
-+
-+	drm_modeset_lock_all(dev);
-+	crtc = drm_crtc_find(dev, crtc_lut->crtc_id);
-+	if (!crtc) {
-+		ret = -ENOENT;
-+		goto out;
-+	}
-+
-+	if (!crtc->funcs->cmap_set) {
-+		ret = -ENOSYS;
-+		goto out;
-+	}
-+
-+	/* memcpy into color map store */
-+	if (crtc_lut->gamma_size != crtc->cmap_size) {
-+		ret = -EINVAL;
-+		goto out;
-+	}
-+
-+	size = crtc_lut->gamma_size * (sizeof(uint16_t));
-+	r_base = crtc->cmap_store;
-+	if (copy_from_user(r_base,
-+			   (void __user *)(unsigned long)crtc_lut->red,
-+			   size)) {
-+		ret = -EFAULT;
-+		goto out;
-+	}
-+
-+	g_base = r_base + size;
-+	if (copy_from_user(g_base,
-+			   (void __user *)(unsigned long)crtc_lut->green,
-+			   size)) {
-+		ret = -EFAULT;
-+		goto out;
-+	}
-+
-+	b_base = g_base + size;
-+	if (copy_from_user(b_base,
-+			   (void __user *)(unsigned long)crtc_lut->blue,
-+			   size)) {
-+		ret = -EFAULT;
-+		goto out;
-+	}
-+
-+	crtc->funcs->cmap_set(crtc, r_base, g_base, b_base, 0, crtc->cmap_size);
-+
-+out:
-+	drm_modeset_unlock_all(dev);
-+	return ret;
-+}
-+
-+/**
-+ * drm_mode_cmap_get_ioctl - get the color map table
-+ * @dev: DRM device
-+ * @data: ioctl data
-+ * @file_priv: DRM file info
-+ *
-+ * Copy the current color map into the storage provided. This also provides
-+ * the color map size the driver expects, which can be used to size the
-+ * allocated storage.
-+ *
-+ * Called by the user via ioctl.
-+ *
-+ * Returns:
-+ * Zero on success, negative errno on failure.
-+ */
-+int drm_mode_cmap_get_ioctl(struct drm_device *dev,
-+			    void *data, struct drm_file *file_priv)
-+{
-+	struct drm_mode_crtc_lut *crtc_lut = data;
-+	struct drm_crtc *crtc;
-+	void *r_base, *g_base, *b_base;
-+	int size;
-+	int ret = 0;
-+
-+	if (!drm_core_check_feature(dev, DRIVER_MODESET))
-+		return -EINVAL;
-+
-+	drm_modeset_lock_all(dev);
-+	crtc = drm_crtc_find(dev, crtc_lut->crtc_id);
-+	if (!crtc) {
-+		ret = -ENOENT;
-+		goto out;
-+	}
-+
-+	/* memcpy into color map store */
-+	if (crtc_lut->gamma_size != crtc->cmap_size) {
-+		ret = -EINVAL;
-+		goto out;
-+	}
-+
-+	size = crtc_lut->gamma_size * (sizeof(uint16_t));
-+	r_base = crtc->cmap_store;
-+	if (copy_to_user((void __user *)(unsigned long)crtc_lut->red,
-+			 r_base, size)) {
-+		ret = -EFAULT;
-+		goto out;
-+	}
-+
-+	g_base = r_base + size;
-+	if (copy_to_user((void __user *)(unsigned long)crtc_lut->green,
-+			 g_base, size)) {
-+		ret = -EFAULT;
-+		goto out;
-+	}
-+
-+	b_base = g_base + size;
-+	if (copy_to_user((void __user *)(unsigned long)crtc_lut->blue,
-+			 b_base, size)) {
-+		ret = -EFAULT;
-+		goto out;
-+	}
-+out:
-+	drm_modeset_unlock_all(dev);
-+	return ret;
-+}
-+
-+/**
-  * drm_mode_page_flip_ioctl - schedule an asynchronous fb update
-  * @dev: DRM device
-  * @data: ioctl data
 @@ -6017,6 +6210,59 @@ struct drm_property *drm_mode_create_rotation_property(struct drm_device *dev,
  EXPORT_SYMBOL(drm_mode_create_rotation_property);
  
@@ -492,19 +307,6 @@ index aeef58e..e6305b6 100644
  		drm_property_destroy_user_blobs(dev, file_priv);
  	}
  
-diff --git a/drivers/gpu/drm/drm_ioctl.c b/drivers/gpu/drm/drm_ioctl.c
-index 8ce2a0c..d8eedb2 100644
---- a/drivers/gpu/drm/drm_ioctl.c
-+++ b/drivers/gpu/drm/drm_ioctl.c
-@@ -663,6 +663,8 @@ static const struct drm_ioctl_desc drm_ioctls[] = {
- 	DRM_IOCTL_DEF(DRM_IOCTL_MODE_ATOMIC, drm_mode_atomic_ioctl, DRM_MASTER|DRM_CONTROL_ALLOW|DRM_UNLOCKED),
- 	DRM_IOCTL_DEF(DRM_IOCTL_MODE_CREATEPROPBLOB, drm_mode_createblob_ioctl, DRM_CONTROL_ALLOW|DRM_UNLOCKED),
- 	DRM_IOCTL_DEF(DRM_IOCTL_MODE_DESTROYPROPBLOB, drm_mode_destroyblob_ioctl, DRM_CONTROL_ALLOW|DRM_UNLOCKED),
-+	DRM_IOCTL_DEF(DRM_IOCTL_MODE_GETCMAP, drm_mode_cmap_get_ioctl, DRM_UNLOCKED),
-+	DRM_IOCTL_DEF(DRM_IOCTL_MODE_SETCMAP, drm_mode_cmap_set_ioctl, DRM_MASTER|DRM_UNLOCKED),
- };
- 
- #define DRM_CORE_IOCTL_COUNT	ARRAY_SIZE( drm_ioctls )
 diff --git a/drivers/gpu/drm/panel/Kconfig b/drivers/gpu/drm/panel/Kconfig
 index 1500ab9..66bb708 100644
 --- a/drivers/gpu/drm/panel/Kconfig
@@ -1634,36 +1436,6 @@ index e0170bf..ab4f821 100644
  
  	/* attached planes bitmask:
  	 * WARNING: transitional helpers do not maintain plane_mask so
-@@ -480,6 +482,9 @@ struct drm_crtc_funcs {
- 	 */
- 	void (*gamma_set)(struct drm_crtc *crtc, u16 *r, u16 *g, u16 *b,
- 			  uint32_t start, uint32_t size);
-+	/* Set color map of the CRTC */
-+	void (*cmap_set)(struct drm_crtc *crtc, u16 *r, u16 *g, u16 *b,
-+			 uint32_t start, uint32_t size);
- 
- 	/**
- 	 * @destroy:
-@@ -722,6 +727,8 @@ struct drm_crtc_funcs {
-  * @funcs: CRTC control functions
-  * @gamma_size: size of gamma ramp
-  * @gamma_store: gamma ramp values
-+ * @cmap_size: size of color map
-+ * @cmap_store: color map values
-  * @helper_private: mid-layer private data
-  * @properties: property tracking for this CRTC
-  * @state: current atomic state for this CRTC
-@@ -774,6 +781,10 @@ struct drm_crtc {
- 	uint32_t gamma_size;
- 	uint16_t *gamma_store;
- 
-+	/* CRTC color map */
-+	uint32_t cmap_size;
-+	uint16_t *cmap_store;
-+
- 	/* if you are using the helper */
- 	const struct drm_crtc_helper_funcs *helper_private;
- 
 @@ -1263,6 +1274,9 @@ struct drm_connector {
   *	plane (in 16.16)
   * @src_w: width of visible portion of plane (in 16.16)
@@ -1703,25 +1475,6 @@ index e0170bf..ab4f821 100644
  extern void drm_object_attach_property(struct drm_mode_object *obj,
  				       struct drm_property *property,
  				       uint64_t init_val);
-@@ -2443,6 +2465,7 @@ extern int drm_mode_connector_attach_encoder(struct drm_connector *connector,
- 					     struct drm_encoder *encoder);
- extern int drm_mode_crtc_set_gamma_size(struct drm_crtc *crtc,
- 					 int gamma_size);
-+extern int drm_mode_crtc_set_cmap_size(struct drm_crtc *crtc, int cmap_size);
- extern struct drm_mode_object *drm_mode_object_find(struct drm_device *dev,
- 		uint32_t id, uint32_t type);
- 
-@@ -2494,6 +2517,10 @@ extern int drm_mode_gamma_get_ioctl(struct drm_device *dev,
- 				    void *data, struct drm_file *file_priv);
- extern int drm_mode_gamma_set_ioctl(struct drm_device *dev,
- 				    void *data, struct drm_file *file_priv);
-+extern int drm_mode_cmap_get_ioctl(struct drm_device *dev,
-+				   void *data, struct drm_file *file_priv);
-+extern int drm_mode_cmap_set_ioctl(struct drm_device *dev,
-+				   void *data, struct drm_file *file_priv);
- extern u8 drm_match_cea_mode(const struct drm_display_mode *to_match);
- extern enum hdmi_picture_aspect drm_get_cea_aspect_ratio(const u8 video_code);
- extern bool drm_detect_hdmi_monitor(struct edid *edid);
 @@ -2551,6 +2578,9 @@ extern struct drm_property *drm_mode_create_rotation_property(struct drm_device
  extern unsigned int drm_rotation_simplify(unsigned int rotation,
  					  unsigned int supported_rotations);
@@ -1732,31 +1485,10 @@ index e0170bf..ab4f821 100644
  /* Helpers */
  
  static inline struct drm_plane *drm_plane_find(struct drm_device *dev,
-diff --git a/include/uapi/drm/drm.h b/include/uapi/drm/drm.h
-index a0ebfe7..d541047 100644
---- a/include/uapi/drm/drm.h
-+++ b/include/uapi/drm/drm.h
-@@ -790,6 +790,8 @@ struct drm_prime_handle {
- #define DRM_IOCTL_MODE_ATOMIC		DRM_IOWR(0xBC, struct drm_mode_atomic)
- #define DRM_IOCTL_MODE_CREATEPROPBLOB	DRM_IOWR(0xBD, struct drm_mode_create_blob)
- #define DRM_IOCTL_MODE_DESTROYPROPBLOB	DRM_IOWR(0xBE, struct drm_mode_destroy_blob)
-+#define DRM_IOCTL_MODE_GETCMAP		DRM_IOWR(0xBF, struct drm_mode_crtc_lut)
-+#define DRM_IOCTL_MODE_SETCMAP		DRM_IOWR(0xC0, struct drm_mode_crtc_lut)
- 
- /**
-  * Device specific ioctls should only be in their respective headers
 diff --git a/include/uapi/drm/drm_mode.h b/include/uapi/drm/drm_mode.h
 index c021743..a38a162 100644
 --- a/include/uapi/drm/drm_mode.h
 +++ b/include/uapi/drm/drm_mode.h
-@@ -149,6 +149,7 @@ struct drm_mode_crtc {
- 	__u32 y; /**< y Position on the framebuffer */
- 
- 	__u32 gamma_size;
-+	__u32 cmap_size;
- 	__u32 mode_valid;
- 	struct drm_mode_modeinfo mode;
- };
 @@ -354,6 +355,7 @@ struct drm_mode_fb_cmd {
  
  #define DRM_MODE_FB_INTERLACED	(1<<0) /* for interlaced framebuffers */
