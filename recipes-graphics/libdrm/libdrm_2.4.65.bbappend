@@ -8,6 +8,5 @@ SRC_URI_append_sti-96bc2 = " \
 		file://0002-modetest-use-SMPTE-pattern-as-cursor.patch \
 		file://0003-drm-add-DRM_MODE_FB_BFF-flag-definition.patch \
 		file://0004-modetest-add-support-of-st.patch \
-		file://0005-libdrm-Add-color-map-control.patch \
 		"
 
