@@ -1,4 +1,4 @@
-From 2c4584c49d0248ee3a08bc65af4769bb434d9f1d Mon Sep 17 00:00:00 2001
+From 8357a58317508b37a109449503223acf474e04e9 Mon Sep 17 00:00:00 2001
 From: Christophe Priouzeau <christophe.priouzeau@st.com>
 Date: Fri, 22 Jul 2016 14:49:55 +0200
 Subject: [PATCH 07/12] REMOTEPROC RPMSG

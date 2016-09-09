@@ -1,6 +1,6 @@
-From a5774f141cd8e71614627d840e31e12c66d76a80 Mon Sep 17 00:00:00 2001
+From 08895cb970dda046dd3895c1e04b4166cef4dbb9 Mon Sep 17 00:00:00 2001
 From: Christophe Priouzeau <christophe.priouzeau@st.com>
-Date: Fri, 22 Jul 2016 14:51:06 +0200
+Date: Fri, 9 Sep 2016 10:10:52 +0200
 Subject: [PATCH 10/12] Devicetree
 
 Signed-off-by: Christophe Priouzeau <christophe.priouzeau@st.com>
@@ -12,8 +12,8 @@ Signed-off-by: Christophe Priouzeau <christophe.priouzeau@st.com>
  arch/arm/boot/dts/stih407.dtsi         |  16 +-
  arch/arm/boot/dts/stih410-b2260.dts    | 274 +++++++++++++++++++++++++++++++++
  arch/arm/boot/dts/stih410-clock.dtsi   |  19 ++-
- arch/arm/boot/dts/stih410.dtsi         | 156 ++++++++++++++++++-
- 8 files changed, 822 insertions(+), 21 deletions(-)
+ arch/arm/boot/dts/stih410.dtsi         | 142 ++++++++++++++++-
+ 8 files changed, 808 insertions(+), 21 deletions(-)
  create mode 100644 arch/arm/boot/dts/stih410-b2260.dts
 
 diff --git a/arch/arm/boot/dts/Makefile b/arch/arm/boot/dts/Makefile
@@ -886,7 +886,7 @@ index d1f2aca..b1f406d 100644
  				clocks = <&clk_s_d2_quadfs 0>,
  					 <&clk_s_d2_quadfs 1>,
 diff --git a/arch/arm/boot/dts/stih410.dtsi b/arch/arm/boot/dts/stih410.dtsi
-index 18ed1ad..a205179 100644
+index 18ed1ad..72c2655 100644
 --- a/arch/arm/boot/dts/stih410.dtsi
 +++ b/arch/arm/boot/dts/stih410.dtsi
 @@ -14,7 +14,52 @@
@@ -1034,7 +1034,7 @@ index 18ed1ad..a205179 100644
  		};
  
  		bdisp0:bdisp@9f10000 {
-@@ -227,5 +314,66 @@
+@@ -227,5 +314,52 @@
  			clock-names = "bdisp";
  			clocks = <&clk_s_c0_flexgen CLK_IC_BDISP_0>;
  		};
@@ -1049,26 +1049,12 @@ index 18ed1ad..a205179 100644
 +			clocks = <&clk_s_c0_flexgen CLK_HVA>;
 +		};
 +
-+		g1@8c80000 {
-+			compatible = "st,g1";
-+			reg = <0x8c80000 0x194>;
-+			interrupts = <GIC_SPI 57 IRQ_TYPE_NONE>;
-+		};
-+
 +		temp0{
 +			compatible = "st,stih407-thermal";
 +			reg = <0x91a0000 0x28>;
 +			clock-names = "thermal";
 +			clocks = <&clk_sysin>;
 +			interrupts = <GIC_SPI 205 IRQ_TYPE_EDGE_RISING>;
-+		};
-+
-+		delta0 {
-+			compatible = "st,delta";
-+			clock-names = "delta", "delta-st231", "delta-flash-promip";
-+			clocks = <&clk_s_c0_flexgen CLK_VID_DMU>,
-+			    <&clk_s_c0_flexgen CLK_ST231_DMU>,
-+			    <&clk_s_c0_flexgen CLK_FLASH_PROMIP>;
 +		};
 +
 +		mali: mali@09f00000 {

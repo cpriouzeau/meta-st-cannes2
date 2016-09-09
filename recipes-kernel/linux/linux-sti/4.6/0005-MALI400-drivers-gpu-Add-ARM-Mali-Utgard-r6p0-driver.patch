@@ -1,0 +1,61 @@
+From 14aa0c982d751ab1121afc53abcf2935dfadce3d Mon Sep 17 00:00:00 2001
+From: Christophe Priouzeau <christophe.priouzeau@st.com>
+Date: Fri, 9 Sep 2016 09:45:12 +0200
+Subject: [PATCH 5/5] MALI400: drivers/gpu: Add ARM Mali Utgard r6p0 driver
+
+Add ARM Mali Utgard driver
+
+The assumption is that the contents of directory driver/src/devicedrv/mali/
+from DX910-SW-99002-r6p0-01rel0.tgz is unpacked into drivers/gpu/arm/utgard/
+in the kernel source tree.
+
+Signed-off-by: Xinliang Liu <xinliang.liu@linaro.org>
+---
+ drivers/gpu/Makefile     | 2 +-
+ drivers/gpu/arm/Kconfig  | 1 +
+ drivers/gpu/arm/Makefile | 1 +
+ drivers/video/Kconfig    | 1 +
+ 4 files changed, 4 insertions(+), 1 deletion(-)
+ create mode 100644 drivers/gpu/arm/Kconfig
+ create mode 100644 drivers/gpu/arm/Makefile
+
+diff --git a/drivers/gpu/Makefile b/drivers/gpu/Makefile
+index e9ed439..66386b4 100644
+--- a/drivers/gpu/Makefile
++++ b/drivers/gpu/Makefile
+@@ -2,5 +2,5 @@
+ # taken to initialize them in the correct order. Link order is the only way
+ # to ensure this currently.
+ obj-$(CONFIG_TEGRA_HOST1X)	+= host1x/
+-obj-y			+= drm/ vga/
++obj-y			+= drm/ vga/ arm/
+ obj-$(CONFIG_IMX_IPUV3_CORE)	+= ipu-v3/
+diff --git a/drivers/gpu/arm/Kconfig b/drivers/gpu/arm/Kconfig
+new file mode 100644
+index 0000000..255cc81
+--- /dev/null
++++ b/drivers/gpu/arm/Kconfig
+@@ -0,0 +1 @@
++source "drivers/gpu/arm/utgard/Kconfig"
+diff --git a/drivers/gpu/arm/Makefile b/drivers/gpu/arm/Makefile
+new file mode 100644
+index 0000000..e4dcf28
+--- /dev/null
++++ b/drivers/gpu/arm/Makefile
+@@ -0,0 +1 @@
++obj-y += utgard/
+diff --git a/drivers/video/Kconfig b/drivers/video/Kconfig
+index e0606c0..410d368 100644
+--- a/drivers/video/Kconfig
++++ b/drivers/video/Kconfig
+@@ -22,6 +22,7 @@ source "drivers/gpu/vga/Kconfig"
+ source "drivers/gpu/host1x/Kconfig"
+ source "drivers/gpu/ipu-v3/Kconfig"
+ 
++source "drivers/gpu/arm/Kconfig"
+ source "drivers/gpu/drm/Kconfig"
+ 
+ menu "Frame buffer Devices"
+-- 
+1.9.1
+
