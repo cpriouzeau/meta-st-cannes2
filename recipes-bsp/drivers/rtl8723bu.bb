@@ -14,7 +14,7 @@ PV = "1.0-git"
 SRC_URI =+ "file://0001-ARM-Support.patch"
 
 DEPENDS = "virtual/kernel"
-COMPATIBLE_MACHINE = "sti-96bc2"
+COMPATIBLE_MACHINE = "stih410-b2260"
 
 inherit module
 

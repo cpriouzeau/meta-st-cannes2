@@ -28,14 +28,14 @@ Layer depends:
     branch: 1.28
 
 Machine to used with Meta-st-canne2 layer:
-    sti-96bc2
+    stih410-b2260
 
 Configuration via Linaro
 ========================
 
 To download software
-    mkdir sti-96bc2
-    cd sti-96bc2
+    mkdir stih410-b2260
+    cd stih410-b2260
     repo init -u https://github.com/96boards/oe-rpb-manifest.git -b jethro
     repo sync
 
@@ -46,9 +46,9 @@ To download software
 
 To compile software
 
-    cd sti-96bc2
+    cd stih410-b2260
     source ./setup-environment
-        -> for Machine choose: sti-96bc2
+        -> for Machine choose: stih410-b2260
         -> for Distributions choose: rpb-wayland
 
     Warning   : if you run the environment set for the second time and you want to force the Machine and Distro selection,
@@ -62,7 +62,7 @@ To compile software
 
     bitbake rpb-weston-image
 
-    Generated tar.gz is stored in sti-96bc2/build-rpb-wayland/tmp-rpb_wayland-glibc/deploy/images/sti-96bc2/
+    Generated tar.gz is stored in stih410-b2260/build-rpb-wayland/tmp-rpb_wayland-glibc/deploy/images/stih410-b2260/
 
 
 
@@ -96,7 +96,7 @@ To Populate SDCard
             mkfs.ext4 /dev/sdc2 -L rootfs
 
         3. In the directory containing the tarball (tar.gz) of firmware to download , type the following command :
-            sudo tar zvxf rpb-weston-image-sti-96bc2-XXX.rootfs.tar.gz - C /media/$user/rootfs
+            sudo tar zvxf rpb-weston-image-stih410-b2260-XXX.rootfs.tar.gz - C /media/$user/rootfs
             umount rootfs
 
         4. In the directory containing the tarball (tar.gz) of firmware to download , type the following command :
@@ -120,7 +120,7 @@ To boot from SDCard
 
     Warning:
         the Prompt "B2260>" is displayed when the boot is stopped in "Uboot" boot.
-        If you stop the boot after "Uboot" boot the prompt "root@sti-96bc2>" is displayed.
+        If you stop the boot after "Uboot" boot the prompt "root@stih410-b2260>" is displayed.
         You must have the Prompt of the board ( eg : "B2260>") to check the configuration as described below.
 
     5- Set the configuration

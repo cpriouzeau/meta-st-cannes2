@@ -6,7 +6,7 @@ SRC_URI = "https://cdn.kernel.org/pub/linux/kernel/v4.x/linux-4.6.4.tar.xz;name=
 SRC_URI[kernel.md5sum] = "b9f8183fa26621f9951ae522556c12d3"
 SRC_URI[kernel.sha256sum] = "8568d41c7104e941989b14a380d167129f83db42c04e950d8d9337fe6012ff7e"
 
-SRC_URI_append_sti-96bc2 = " \
+SRC_URI_append_stih410-b2260 = " \
     file://0001-V4l2-bdisp-hva-delta.patch \
     file://0002-SMAF.patch \
     file://0003-ST-FDMA.patch \
@@ -29,7 +29,7 @@ LINUX_VERSION = "4.6"
 PR = "r0"
 PV = "${LINUX_VERSION}"
 
-COMPATIBLE_MACHINE = "sti-96bc2"
+COMPATIBLE_MACHINE = "stih410-b2260"
 
 #---------------------------------------
 # Defconfig
@@ -46,7 +46,7 @@ KERNEL_EXTRA_ARGS += "LOADADDR=${STM_KERNEL_LOADADDR} \
 #---------------------------------------
 # Mali400
 #
-SRC_URI_append_sti-96bc2 = " \
+SRC_URI_append_stih410-b2260 = " \
     http://malideveloper.arm.com/downloads/drivers/DX910/r6p0-01rel0/DX910-SW-99002-r6p0-01rel0.tgz;name=mali \
     file://END_USER_LICENCE_AGREEMENT.txt \
     file://0001-MALI400-platform-add-ST-platform-supporting-device-t.patch \
@@ -61,11 +61,11 @@ SRC_URI[mali.sha256sum] = "15813d964cb9308c236a7c71f8e2d8f346b13fa8ff6c8b3bd7e52
 
 
 # Mali 400/450 GPU kernel device drivers license is GPLv2
-LIC_FILES_CHKSUM_sti-96bc2 = "file://END_USER_LICENCE_AGREEMENT.txt;md5=450d710cd9d21c5ea5c4ac4217362b7e"
+LIC_FILES_CHKSUM_stih410-b2260 = "file://END_USER_LICENCE_AGREEMENT.txt;md5=450d710cd9d21c5ea5c4ac4217362b7e"
 
-KERNEL_CONFIG_FRAGMENTS_append_sti-96bc2 = " ${THISDIR}/${PN}/${PV}/mali400.conf "
+KERNEL_CONFIG_FRAGMENTS_append_stih410-b2260 = " ${THISDIR}/${PN}/${PV}/mali400.conf "
 
-do_unpack_append_sti-96bc2() {
+do_unpack_append_stih410-b2260() {
     bb.build.exec_func('do_unpack_mali_drv', d)
 }
 
