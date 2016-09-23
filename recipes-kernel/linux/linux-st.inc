@@ -152,8 +152,8 @@ cmdline_deploy() {
 # Support checking the kernel load address parameter: expecting proper value for STM kernel.
 #
 python do_loadaddrcheck() {
-    if not d.getVar('STM_KERNEL_LOADADDR'):
-        bb.fatal('Missing STM_KERNEL_LOADADDR value for STM kernel build: please define it in your machine.')
+    if not d.getVar('ST_KERNEL_LOADADDR'):
+        bb.fatal('Missing ST_KERNEL_LOADADDR value for ST kernel build: please define it in your machine.')
 }
 
 PACKAGES =+ "kernel-headers"
