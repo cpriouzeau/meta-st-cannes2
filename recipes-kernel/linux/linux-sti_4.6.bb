@@ -40,7 +40,7 @@ KERNEL_CONFIG_FRAGMENTS  = "${THISDIR}/${PN}/${PV}/opensdk.config"
 #---------------------------------------
 # Kernel Args
 #
-KERNEL_EXTRA_ARGS += "LOADADDR=${STM_KERNEL_LOADADDR} \
+KERNEL_EXTRA_ARGS += "LOADADDR=${ST_KERNEL_LOADADDR} \
         TEXT_OFFSET=0x00008000 "
 
 #---------------------------------------
