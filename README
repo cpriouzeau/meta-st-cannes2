@@ -39,10 +39,6 @@ To download software
     repo init -u https://github.com/96boards/oe-rpb-manifest.git -b jethro
     repo sync
 
-    cd layers
-    git clone https://github.com/cpriouzeau/meta-st-cannes2.git -b krogoth
-
-
 To compile software
 
     cd stih410-b2260
@@ -55,9 +51,6 @@ To compile software
             unset MACHINE
             unset DISTRO
             unset DISTROLAYERS
-
-    Add in conf/bblayers.conf file the following line:
-    BBLAYERS =+ "${OEROOT}/layers/meta-st-cannes2"
 
     bitbake rpb-weston-image
 
