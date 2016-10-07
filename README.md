@@ -17,6 +17,7 @@ For information about OpenEmbedded, see the OpenEmbedded website:
 # Configuration via Openembedded
 
 Layer depends:
+
     URI: git://git.openembedded.org/openembedded-core
     layers: meta
     branch: krogoth
