@@ -73,7 +73,7 @@ The image generated have the extension stimg and contains two partitions:
 * rootfs: ext4 partition which contains rootfs
 
 #### To flash a SDCard:
-> dd if=stih410-b2260/build-rpb-wayland/tmp-rpb_wayland-glibc/deploy/images/stih410-b2260/image.stimg of=/dev/mmcblkX bs=1M
+> dd if=stih410-b2260/build-rpb-wayland/tmp-rpb_wayland-glibc/deploy/images/stih410-b2260/image.stimg of=/dev/mmcblkX bs=1M conv=fdatasync
 
 where "image.stimg" can be :
 * rpb-weston-image-stih410-b2260.stimg
@@ -82,7 +82,7 @@ where "image.stimg" can be :
 where ""/dev/mmcblkX" correspond to your sdcard kernel device entry on your linux PC (ex.: /dev/mmcblk0)
 
 #### To flash a Usb Key:
-> dd if=stih410-b2260/build-rpb-wayland/tmp-rpb_wayland-glibc/deploy/images/stih410-b2260/<image>.stimg of=/dev/sdX bs=1M
+> dd if=stih410-b2260/build-rpb-wayland/tmp-rpb_wayland-glibc/deploy/images/stih410-b2260/<image>.stimg of=/dev/sdX bs=1M conv=fdatasync
 
 where "image.stimg" can be :
 * rpb-weston-image-stih410-b2260.stimg
