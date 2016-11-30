@@ -70,10 +70,12 @@ do_unpack_append_stih410-b2260() {
 }
 
 do_unpack_mali_drv() {
-    cp ${WORKDIR}/END_USER_LICENCE_AGREEMENT.txt ${S}/
-    mkdir -p ${S}/drivers/gpu/arm
-    mv ${WORKDIR}/DX910-SW-99002-r6p0-01rel0/driver/src/devicedrv/mali \
-        ${S}/drivers/gpu/arm/utgard
+    if [ -d ${WORKDIR}/DX910-SW-99002-r6p0-01rel0/ ]; then
+        cp ${WORKDIR}/END_USER_LICENCE_AGREEMENT.txt ${S}/
+        mkdir -p ${S}/drivers/gpu/arm
+        mv ${WORKDIR}/DX910-SW-99002-r6p0-01rel0/driver/src/devicedrv/mali \
+            ${S}/drivers/gpu/arm/utgard
+    fi
 }
 
 
