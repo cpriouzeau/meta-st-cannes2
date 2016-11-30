@@ -35,7 +35,7 @@ COMPATIBLE_MACHINE = "stih410-b2260"
 # Defconfig
 #
 KERNEL_DEFCONFIG         = "multi_v7_defconfig"
-KERNEL_CONFIG_FRAGMENTS  = "${THISDIR}/${PN}/${PV}/opensdk.config"
+KERNEL_CONFIG_FRAGMENTS  = "${THISDIR}/${PN}/${PV}/systemd.config"
 
 #---------------------------------------
 # Kernel Args
@@ -73,7 +73,7 @@ do_unpack_mali_drv() {
     cp ${WORKDIR}/END_USER_LICENCE_AGREEMENT.txt ${S}/
     mkdir -p ${S}/drivers/gpu/arm
     mv ${WORKDIR}/DX910-SW-99002-r6p0-01rel0/driver/src/devicedrv/mali \
-       ${S}/drivers/gpu/arm/utgard
+        ${S}/drivers/gpu/arm/utgard
 }
 
 
