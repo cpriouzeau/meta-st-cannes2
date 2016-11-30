@@ -11,7 +11,8 @@ S = "${WORKDIR}/git"
 PV = "1.0-git"
 
 # add support for ARM platform
-SRC_URI =+ "file://0001-ARM-Support.patch"
+SRC_URI =+ "file://0001-ARM-Support.patch \
+            file://0002-realtek-Disable-IPS-mode.patch "
 
 DEPENDS = "virtual/kernel"
 COMPATIBLE_MACHINE = "stih410-b2260"
