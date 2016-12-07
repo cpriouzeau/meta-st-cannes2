@@ -20,14 +20,14 @@ Layer depends:
 
     URI: git://git.openembedded.org/openembedded-core
     layers: meta
-    branch: krogoth
+    branch: morty
 
     URI: git://git.openembedded.org/meta-openembedded
     layers: meta-oe
-    branch: krogoth
+    branch: morty
 
     URI: git://git.openembedded.org/bitbake
-    branch: 1.30
+    branch: 1.32
 
 Machine to be used with Meta-st-canne2 layer:
     stih410-b2260
@@ -41,7 +41,7 @@ Machine to be used with Meta-st-canne2 layer:
 
 > cd stih410-b2260
 
-> repo init -u https://github.com/96boards/oe-rpb-manifest.git -b krogoth
+> repo init -u https://github.com/96boards/oe-rpb-manifest.git -b morty
 
 > repo sync
 
@@ -88,7 +88,7 @@ where "image.stimg" can be :
 * rpb-weston-image-stih410-b2260.stimg
 * rpb-console-image-stih410-b2260.stimg
 
-where ""/dev/mmcblkX" correspond to your sdcard kernel device entry on your linux PC (ex.: /dev/mmcblk0)
+where ""/dev/sdX" correspond to your Usb Key kernel device entry on your linux PC (ex.: /dev/sdb)
 
 ### To boot from SDCard
 
