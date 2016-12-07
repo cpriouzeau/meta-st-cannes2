@@ -28,7 +28,7 @@ IMAGE_DEPENDS_stimg = " \
         boot-configs-stih410-b2260:do_deploy \
         "
 # This image depends on the rootfs image
-IMAGE_TYPEDEP_stimg_append = "ext4"
+IMAGE_TYPEDEP_stimg_append = " ext4 "
 
 STIMG ?= "${DEPLOY_DIR_IMAGE}/${IMAGE_NAME}.stimg"
 
@@ -86,8 +86,8 @@ IMAGE_CMD_stimg () {
 
     # burn rootfs
     offset=$(LC_ALL=C parted -s ${STIMG} unit b print | grep "^ 2" | awk '{ print substr($2, 1, length($2 -1)) }' | sed "s/B//" )
-    e2label ${DEPLOY_DIR_IMAGE}/${IMAGE_NAME}.rootfs.ext4 rootfs
-    dd if=${DEPLOY_DIR_IMAGE}/${IMAGE_NAME}.rootfs.ext4 of=${STIMG} conv=notrunc seek=1 bs=$offset && sync && sync
+    e2label ${IMGDEPLOYDIR}/${IMAGE_NAME}.rootfs.ext4 rootfs
+    dd if=${IMGDEPLOYDIR}/${IMAGE_NAME}.rootfs.ext4 of=${STIMG} conv=notrunc,fdatasync seek=1 bs=$offset
 
     # reduce the size of image
     truncate --size=${_FINAL_SIZE_KB}K ${STIMG}
