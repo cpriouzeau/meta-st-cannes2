@@ -80,6 +80,14 @@ do_configure_prepend() {
 }
 
 # ---------------------------------------------------------------------
+do_compile_append() {
+    if [ -f ${B}/vmlinux ]; then
+        #create link for vmlinux
+        ln -sf ${B}/vmlinux ${B}/arch/arm/boot/vmlinux
+    fi
+}
+
+# ---------------------------------------------------------------------
 do_install_append() {
     if test -n "${KERNEL_DEVICETREE}"; then
         for DTB in ${KERNEL_DEVICETREE}; do
@@ -111,7 +119,7 @@ do_deploy_append() {
                 DTB=`basename ${DTB} | sed 's,\.dts$,.dtb,g'`
             fi
             DTB_BASE_NAME=`basename ${DTB} .dtb`
-            DTB_NAME=`echo ${KERNEL_IMAGE_BASE_NAME} | sed "s/${MACHINE}/${DTB_BASE_NAME}/g"`
+            DTB_NAME=`echo "${DTB_BASE_NAME}${KERNEL_IMAGE_BASE_NAME}"`
             DTB_PATH="${B}/arch/${ARCH}/boot/${DTB}"
             install -d ${DEPLOYDIR}
             install -m 0644 ${DTB_PATH} ${DEPLOYDIR}/${DTB_NAME}.dtb
