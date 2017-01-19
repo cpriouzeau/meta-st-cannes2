@@ -11,7 +11,8 @@
 #   board             board id ("b2120", "b2260", ...)
 #
 # Extra commands:
-#   hpen              holding pen reconfiguration and kick support, for SMP boot.
+#   hpen              holding pen reconfiguration and kick support, for SMP boot
+#   load_optee        OPTEE specific formated image intallation command
 #   boot_optee        OPTEE specific boot command
 #
 # u-bootrom enables silent console. To get some logs from this script one
