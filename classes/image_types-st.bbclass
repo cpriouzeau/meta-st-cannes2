@@ -25,6 +25,7 @@ IMAGE_DEPENDS_stimg = " \
         e2fsprogs-native \
         dosfstools-native \
         virtual/kernel:do_deploy \
+        virtual/bootloader:do_deploy \
         boot-configs-stih410-b2260:do_deploy \
         "
 # This image depends on the rootfs image
@@ -46,6 +47,12 @@ st_populate_BOOT() {
 
     #copy boot script
     mcopy -i ${DEPLOY_DIR_IMAGE}/${IMAGE_NAME}.bootimg -s ${DEPLOY_DIR_IMAGE}/boot/* ::/
+
+    #copy u-boot
+    for conf in "${UBOOT_CONFIG}";
+    do
+        mcopy -i ${DEPLOY_DIR_IMAGE}/${IMAGE_NAME}.bootimg -s ${DEPLOY_DIR_IMAGE}/u-boot.bin-$conf ::/$conf/u-boot.bin
+    done
 }
 
 
