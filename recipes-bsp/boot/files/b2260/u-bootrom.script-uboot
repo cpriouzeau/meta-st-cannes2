@@ -18,50 +18,26 @@
 # u-bootrom enables silent console. To get some logs from this script one
 # can disable silent mode ("setenv silent;") and re-enable silent mode
 # ("setenv silent 1") in this script.
+err=0
 
-# disable silent mode to log kernel boot attempt
-setenv silent;
-err =0
-
-# images location
-
-fdt_path="stih410-b2260.dtb"
-fdt_addr=0x47000000
-
-kernel_path="uImage"
-kernel_addr=0x60000000
+# u-boot shall be loaded 10MB before the begining of the last 32MB of the DDR.
+setexpr.l uboot_addr $dram_base + $dram_size
+setexpr.l uboot_addr $uboot_addr - 0x02000000
+setexpr.l uboot_addr $uboot_addr - 0x00A00000
+uboot_path="$board/u-boot.bin"
 
 # load images
-echo "[bootscript] loadbooting from $script_dev using $script_fsload"
 
-$script_fsload $script_dev $fdt_addr $fdt_path
-test $? -ne 0 && err=1
-
-$script_fsload $script_dev $kernel_addr $kernel_path
+$script_fsload $script_dev $uboot_addr $uboot_path
 test $? -ne 0 && err=1
 
 # boot images
 
 dcache flush;
 
-echo "[bootscript] prepare secondaries in holding pen: kicker at 0x094100A4"
-
 hpen prepare 0x094100A4 && hpen kick hpen
 test $? -ne 0 && err=1
 
-setenv bootargs_sd 'console=ttyAS1,115200 CONSOLE=/dev/ttyAS1 consoleblank=0 root=/dev/mmcblk0p2 rootfstype=ext4 rw rootwait mem=992M@0x40000000 vmalloc=256m '
-setenv bootargs_usb 'console=ttyAS1,115200 CONSOLE=/dev/ttyAS1 consoleblank=0 root=/dev/sda2 rootfstype=ext4 rw rootwait mem=992M@0x40000000 vmalloc=256m '
-
-setenv bootargs $bootargs_sd
-if test "$script_dev" = "$script_dev_usb"; then setenv bootargs $bootargs_usb; fi
-
-setenv fdt_high 0xFFFFFFFF
-
-echo "[bootscript] kernel bootargs:"
-echo $bootargs
-echo
-echo "[bootscript] booting kernel $kernel_addr, fdt $fdt_addr"
-
 test err -ne 0 && echo "[bootscript] failure detected, reset..." && reset
 
-bootm $kernel_addr - $fdt_addr
+go $uboot_addr
