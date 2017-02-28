@@ -1,18 +1,27 @@
-From e2172527d6ab890942a990204f51bb52c13c2b53 Mon Sep 17 00:00:00 2001
+From 3de32d0a4fbbe2d39b3e07f04a162d0fe3a4424c Mon Sep 17 00:00:00 2001
 From: Christophe Priouzeau <christophe.priouzeau@st.com>
-Date: Mon, 18 Jul 2016 09:44:06 +0200
+Date: Mon, 6 Feb 2017 15:46:50 +0100
 Subject: [PATCH] ARM Support
 
 Signed-off-by: Christophe Priouzeau <christophe.priouzeau@st.com>
 ---
- Makefile | 18 +++++++++++++++++-
- 1 file changed, 17 insertions(+), 1 deletion(-)
+ Makefile | 20 ++++++++++++++++++--
+ 1 file changed, 18 insertions(+), 2 deletions(-)
 
 diff --git a/Makefile b/Makefile
-index 3eca391..59a988a 100644
+index 1d031c2..cd5cb75 100644
 --- a/Makefile
 +++ b/Makefile
-@@ -50,7 +50,7 @@ CONFIG_PNO_SUPPORT = n
+@@ -15,7 +15,7 @@ EXTRA_CFLAGS += -Wno-unused-label
+ EXTRA_CFLAGS += -Wno-unused-parameter
+ EXTRA_CFLAGS += -Wno-unused-function
+ EXTRA_CFLAGS += -Wno-unused
+-EXTRA_CFLAGS += -DCONFIG_CONCURRENT_MODE
++#EXTRA_CFLAGS += -DCONFIG_CONCURRENT_MODE
+ 
+ ccflags-y += -D__CHECK_ENDIAN__
+ 
+@@ -53,7 +53,7 @@ CONFIG_PNO_SUPPORT = n
  CONFIG_PNO_SET_DEBUG = n
  CONFIG_AP_WOWLAN = n
  ###################### Platform Related #######################
@@ -21,7 +30,7 @@ index 3eca391..59a988a 100644
  ###############################################################
  
  CONFIG_DRVEXT_MODULE = n
-@@ -246,6 +246,22 @@ EXTRA_CFLAGS += -DCONFIG_GPIO_WAKEUP
+@@ -249,6 +249,22 @@ EXTRA_CFLAGS += -DCONFIG_GPIO_WAKEUP
  endif
  
  
@@ -45,5 +54,5 @@ index 3eca391..59a988a 100644
  EXTRA_CFLAGS += -DCONFIG_IOCTL_CFG80211
  EXTRA_CFLAGS += -DRTW_USE_CFG80211_STA_EVENT # only enable when kernel >= 3.2
 -- 
-1.9.1
+2.7.4
 

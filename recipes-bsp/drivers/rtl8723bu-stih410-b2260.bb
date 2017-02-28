@@ -4,15 +4,16 @@ LICENSE = "GPLv2"
 LIC_FILES_CHKSUM = "file://Kconfig;md5=ce4c7adf40ddcf6cfca7ee2b333165f0"
 
 SRC_URI = "git://github.com/lwfinger/rtl8723bu.git;protocol=https"
-SRCREV = "b665e50e1f4ecf818bbb955bef0e215a278f0304"
+SRCREV = "4c9b566c6c0fb2dfc32f00ddd6ec03e8dd361650"
 
 S = "${WORKDIR}/git"
 
-PV = "1.0-git"
+PV = "1.0-git-${SRCPV}"
 
 # add support for ARM platform
 SRC_URI =+ "file://0001-ARM-Support.patch \
-            file://0002-realtek-Disable-IPS-mode.patch "
+            file://0002-realtek-Disable-IPS-mode.patch \
+            "
 
 DEPENDS = "virtual/kernel"
 COMPATIBLE_MACHINE = "stih410-b2260"
