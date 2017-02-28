@@ -1,0 +1,39 @@
+From ca1fa6a94bdbc27386d66657bda01f9f55228ab5 Mon Sep 17 00:00:00 2001
+From: Christophe Priouzeau <christophe.priouzeau@st.com>
+Date: Tue, 7 Feb 2017 16:09:29 +0100
+Subject: [PATCH 5/7] ARM: dts: STiH407-family: set snps,dis_u3_susphy_quirk
+
+Since v4.10-rc1, the following logs appears in loop :
+[  801.953836] usb usb6-port1: Cannot enable. Maybe the USB cable is bad?
+[  801.960455] xhci-hcd xhci-hcd.0.auto: Cannot set link state.
+[  801.966611] usb usb6-port1: cannot disable (err = -32)
+[  806.083772] usb usb6-port1: Cannot enable. Maybe the USB cable is bad?
+[  806.090370] xhci-hcd xhci-hcd.0.auto: Cannot set link state.
+[  806.096494] usb usb6-port1: cannot disable (err = -32)
+
+After analysis, xhci try to set link in U3 and returns an error.
+Using snps,dis_u3_susphy_quirk fix this issue.
+
+This issue is present since v4.8-rc1 but is "visible" only
+v4.10-rc1 due to additionnal dev_err()
+
+Signed-off-by: Patrice Chotard <patrice.chotard@st.com>
+---
+ arch/arm/boot/dts/stih407-family.dtsi | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/arch/arm/boot/dts/stih407-family.dtsi b/arch/arm/boot/dts/stih407-family.dtsi
+index 75c22a1..ad68836 100644
+--- a/arch/arm/boot/dts/stih407-family.dtsi
++++ b/arch/arm/boot/dts/stih407-family.dtsi
+@@ -664,6 +664,7 @@
+ 				phy-names	= "usb2-phy", "usb3-phy";
+ 				phys		= <&usb2_picophy0>,
+ 						  <&phy_port2 PHY_TYPE_USB3>;
++				snps,dis_u3_susphy_quirk;
+ 			};
+ 		};
+ 
+-- 
+2.7.4
+

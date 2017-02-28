@@ -1,0 +1,1806 @@
+From 1f6924fbc185e3b70f43285e58b728fbfaf489f2 Mon Sep 17 00:00:00 2001
+From: Christophe Priouzeau <christophe.priouzeau@st.com>
+Date: Tue, 31 Jan 2017 13:57:52 +0100
+Subject: [PATCH 1/7] 4.9.12 ST: DRM
+
+---
+ drivers/gpu/drm/drm_crtc.c              |  22 +++
+ drivers/gpu/drm/drm_fb_helper.c         |  40 ++++--
+ drivers/gpu/drm/drm_fops.c              |   1 +
+ drivers/gpu/drm/drm_framebuffer.c       |   3 +-
+ drivers/gpu/drm/i915/intel_fbdev.c      |   2 +-
+ drivers/gpu/drm/panel/Kconfig           |   5 +
+ drivers/gpu/drm/panel/Makefile          |   1 +
+ drivers/gpu/drm/panel/panel-hsd101pww.c | 154 ++++++++++++++++++++
+ drivers/gpu/drm/sti/sti_crtc.c          |  46 ++----
+ drivers/gpu/drm/sti/sti_cursor.c        |   6 +-
+ drivers/gpu/drm/sti/sti_drv.c           | 109 +++-----------
+ drivers/gpu/drm/sti/sti_drv.h           |   9 +-
+ drivers/gpu/drm/sti/sti_gdp.c           |  91 ++++++------
+ drivers/gpu/drm/sti/sti_hdmi.c          | 243 ++++++++++++++------------------
+ drivers/gpu/drm/sti/sti_hdmi.h          |  17 +--
+ drivers/gpu/drm/sti/sti_hqvdp.c         | 105 +++++++++-----
+ drivers/gpu/drm/sti/sti_mixer.h         |   2 -
+ drivers/gpu/drm/sti/sti_plane.c         | 215 +++++++++++++++++++++++++++-
+ drivers/gpu/drm/sti/sti_plane.h         |  12 +-
+ drivers/gpu/drm/virtio/Kconfig          |   7 +-
+ include/drm/drm_crtc.h                  |   2 +
+ include/drm/drm_edid.h                  |  13 ++
+ include/drm/drm_fb_helper.h             |   3 +-
+ include/uapi/drm/drm_mode.h             |   1 +
+ 24 files changed, 730 insertions(+), 379 deletions(-)
+ create mode 100644 drivers/gpu/drm/panel/panel-hsd101pww.c
+
+diff --git a/drivers/gpu/drm/drm_crtc.c b/drivers/gpu/drm/drm_crtc.c
+index 2d7bedf..9150140 100644
+--- a/drivers/gpu/drm/drm_crtc.c
++++ b/drivers/gpu/drm/drm_crtc.c
+@@ -102,6 +102,28 @@ int drm_crtc_force_disable_all(struct drm_device *dev)
+ }
+ EXPORT_SYMBOL(drm_crtc_force_disable_all);
+ 
++/**
++ * drm_cursor_release - disable existing cursor planes
++ * @dev: drm device
++ *
++ * Scans all the planes in @dev's mode_config.  If they're
++ * enabled cursor planes, removes it.
++ */
++void drm_cursor_release(struct drm_device *dev)
++{
++	struct drm_plane *plane;
++
++	drm_modeset_lock_all(dev);
++
++	list_for_each_entry(plane, &dev->mode_config.plane_list, head) {
++		if ((plane->crtc) && (plane->type == DRM_PLANE_TYPE_CURSOR))
++			drm_plane_force_disable(plane);
++	}
++
++	drm_modeset_unlock_all(dev);
++}
++EXPORT_SYMBOL(drm_cursor_release);
++
+ DEFINE_WW_CLASS(crtc_ww_class);
+ 
+ static unsigned int drm_num_crtcs(struct drm_device *dev)
+diff --git a/drivers/gpu/drm/drm_fb_helper.c b/drivers/gpu/drm/drm_fb_helper.c
+index 6c75e62..19192a2 100644
+--- a/drivers/gpu/drm/drm_fb_helper.c
++++ b/drivers/gpu/drm/drm_fb_helper.c
+@@ -1557,11 +1557,34 @@ static int drm_fb_helper_single_fb_probe(struct drm_fb_helper *fb_helper,
+ 	}
+ 
+ 	if (crtc_count == 0 || sizes.fb_width == -1 || sizes.fb_height == -1) {
+-		/* hmm everyone went away - assume VGA cable just fell out
+-		   and will come back later. */
+-		DRM_INFO("Cannot find any crtc or sizes - going 1024x768\n");
+-		sizes.fb_width = sizes.surface_width = 1024;
+-		sizes.fb_height = sizes.surface_height = 768;
++		struct drm_display_mode *mode = NULL;
++		/* hmm everyone went away - assume cable just fell out and will
++		 * come back later.
++		 * Get fb size from command line mode (if existing) else fb size
++		 * is set to 1024x768
++		 */
++		for (i = 0; i < fb_helper->connector_count; i++) {
++			struct drm_fb_helper_connector *fb_helper_conn;
++
++			fb_helper_conn = fb_helper->connector_info[i];
++			mode = drm_pick_cmdline_mode(fb_helper_conn);
++			if (mode)
++				break;
++		}
++
++		if (mode) {
++			sizes.fb_width = mode->hdisplay;
++			sizes.fb_height = mode->vdisplay;
++			DRM_INFO("Cannot find any crtc or sizes - use cmdline %dx%d\n",
++				 sizes.fb_width, sizes.fb_height);
++		} else {
++			sizes.fb_width = 1024;
++			sizes.fb_height = 768;
++			DRM_INFO("Cannot find any crtc or sizes - going 1024x768\n");
++		}
++
++		sizes.surface_width = sizes.fb_width;
++		sizes.surface_height = sizes.fb_height;
+ 	}
+ 
+ 	/* push down into drivers */
+@@ -1755,8 +1778,7 @@ static bool drm_has_cmdline_mode(struct drm_fb_helper_connector *fb_connector)
+ 	return fb_connector->connector->cmdline_mode.specified;
+ }
+ 
+-struct drm_display_mode *drm_pick_cmdline_mode(struct drm_fb_helper_connector *fb_helper_conn,
+-						      int width, int height)
++struct drm_display_mode *drm_pick_cmdline_mode(struct drm_fb_helper_connector *fb_helper_conn)
+ {
+ 	struct drm_cmdline_mode *cmdline_mode;
+ 	struct drm_display_mode *mode;
+@@ -1874,7 +1896,7 @@ static bool drm_target_cloned(struct drm_fb_helper *fb_helper,
+ 		if (!enabled[i])
+ 			continue;
+ 		fb_helper_conn = fb_helper->connector_info[i];
+-		modes[i] = drm_pick_cmdline_mode(fb_helper_conn, width, height);
++		modes[i] = drm_pick_cmdline_mode(fb_helper_conn);
+ 		if (!modes[i]) {
+ 			can_clone = false;
+ 			break;
+@@ -1996,7 +2018,7 @@ static bool drm_target_preferred(struct drm_fb_helper *fb_helper,
+ 			      fb_helper_conn->connector->base.id);
+ 
+ 		/* got for command line mode first */
+-		modes[i] = drm_pick_cmdline_mode(fb_helper_conn, width, height);
++		modes[i] = drm_pick_cmdline_mode(fb_helper_conn);
+ 		if (!modes[i]) {
+ 			DRM_DEBUG_KMS("looking for preferred mode on connector %d %d\n",
+ 				      fb_helper_conn->connector->base.id, fb_helper_conn->connector->tile_group ? fb_helper_conn->connector->tile_group->id : 0);
+diff --git a/drivers/gpu/drm/drm_fops.c b/drivers/gpu/drm/drm_fops.c
+index e84faec..2b2af7b 100644
+--- a/drivers/gpu/drm/drm_fops.c
++++ b/drivers/gpu/drm/drm_fops.c
+@@ -398,6 +398,7 @@ int drm_release(struct inode *inode, struct file *filp)
+ 
+ 	if (drm_core_check_feature(dev, DRIVER_MODESET)) {
+ 		drm_fb_release(file_priv);
++		drm_cursor_release(dev);
+ 		drm_property_destroy_user_blobs(dev, file_priv);
+ 	}
+ 
+diff --git a/drivers/gpu/drm/drm_framebuffer.c b/drivers/gpu/drm/drm_framebuffer.c
+index 398efd6..f58b860 100644
+--- a/drivers/gpu/drm/drm_framebuffer.c
++++ b/drivers/gpu/drm/drm_framebuffer.c
+@@ -311,7 +311,8 @@ drm_internal_framebuffer_create(struct drm_device *dev,
+ 	struct drm_framebuffer *fb;
+ 	int ret;
+ 
+-	if (r->flags & ~(DRM_MODE_FB_INTERLACED | DRM_MODE_FB_MODIFIERS)) {
++	if (r->flags & ~(DRM_MODE_FB_INTERLACED | DRM_MODE_FB_MODIFIERS
++			| DRM_MODE_FB_BFF)) {
+ 		DRM_DEBUG_KMS("bad framebuffer flags 0x%08x\n", r->flags);
+ 		return ERR_PTR(-EINVAL);
+ 	}
+diff --git a/drivers/gpu/drm/i915/intel_fbdev.c b/drivers/gpu/drm/i915/intel_fbdev.c
+index 9127e57..8d6707c 100644
+--- a/drivers/gpu/drm/i915/intel_fbdev.c
++++ b/drivers/gpu/drm/i915/intel_fbdev.c
+@@ -450,7 +450,7 @@ static bool intel_fb_initial_config(struct drm_fb_helper *fb_helper,
+ 			      connector->name);
+ 
+ 		/* go for command line mode first */
+-		modes[i] = drm_pick_cmdline_mode(fb_conn, width, height);
++		modes[i] = drm_pick_cmdline_mode(fb_conn);
+ 
+ 		/* try for preferred next */
+ 		if (!modes[i]) {
+diff --git a/drivers/gpu/drm/panel/Kconfig b/drivers/gpu/drm/panel/Kconfig
+index 62aba97..592d5bc 100644
+--- a/drivers/gpu/drm/panel/Kconfig
++++ b/drivers/gpu/drm/panel/Kconfig
+@@ -81,4 +81,9 @@ config DRM_PANEL_SHARP_LS043T1LE01
+ 	  Say Y here if you want to enable support for Sharp LS043T1LE01 qHD
+ 	  (540x960) DSI panel as found on the Qualcomm APQ8074 Dragonboard
+ 
++config DRM_PANEL_HSD101PWW
++	tristate "HSD101PWW LVDS panel"
++	depends on OF
++	select VIDEOMODE_HELPERS
++
+ endmenu
+diff --git a/drivers/gpu/drm/panel/Makefile b/drivers/gpu/drm/panel/Makefile
+index a5c7ec0..caab27e 100644
+--- a/drivers/gpu/drm/panel/Makefile
++++ b/drivers/gpu/drm/panel/Makefile
+@@ -6,3 +6,4 @@ obj-$(CONFIG_DRM_PANEL_SAMSUNG_LD9040) += panel-samsung-ld9040.o
+ obj-$(CONFIG_DRM_PANEL_SAMSUNG_S6E8AA0) += panel-samsung-s6e8aa0.o
+ obj-$(CONFIG_DRM_PANEL_SHARP_LQ101R1SX01) += panel-sharp-lq101r1sx01.o
+ obj-$(CONFIG_DRM_PANEL_SHARP_LS043T1LE01) += panel-sharp-ls043t1le01.o
++obj-$(CONFIG_DRM_PANEL_HSD101PWW) += panel-hsd101pww.o
+diff --git a/drivers/gpu/drm/panel/panel-hsd101pww.c b/drivers/gpu/drm/panel/panel-hsd101pww.c
+new file mode 100644
+index 0000000..61a622f
+--- /dev/null
++++ b/drivers/gpu/drm/panel/panel-hsd101pww.c
+@@ -0,0 +1,154 @@
++/*
++ * hsd101pww LED LCD drm_panel driver.
++ *
++ * Copyright (c) 2014 STMicroelectronics SA
++ *
++ * Vincent Abriou <vincent.abriou@st.com>
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License version 2 as
++ * published by the Free Software Foundation.
++*/
++
++#include <linux/of_gpio.h>
++
++#include <drm/drmP.h>
++#include <drm/drm_panel.h>
++
++#include <video/of_videomode.h>
++#include <video/videomode.h>
++
++struct hsd101pww {
++	struct drm_panel panel;
++	int enable_gpio;
++	struct videomode vm;
++	u32 width_mm;
++	u32 height_mm;
++};
++
++#define panel_to_hsd101pww(p) container_of(p, struct hsd101pww, panel)
++
++static int hsd101pww_enable(struct drm_panel *panel)
++{
++	struct hsd101pww *ctx = panel_to_hsd101pww(panel);
++
++	gpio_set_value_cansleep(ctx->enable_gpio, 1);
++
++	return 0;
++}
++
++static int hsd101pww_disable(struct drm_panel *panel)
++{
++	struct hsd101pww *ctx = panel_to_hsd101pww(panel);
++
++	gpio_set_value_cansleep(ctx->enable_gpio, 0);
++
++	return 0;
++}
++
++static int hsd101pww_get_modes(struct drm_panel *panel)
++{
++	struct drm_connector *connector = panel->connector;
++	struct hsd101pww *ctx = panel_to_hsd101pww(panel);
++	struct drm_display_mode *mode;
++
++	mode = drm_mode_create(connector->dev);
++	if (!mode) {
++		DRM_ERROR("failed to create a new display mode\n");
++		return 0;
++	}
++
++	drm_display_mode_from_videomode(&ctx->vm, mode);
++	mode->width_mm = ctx->width_mm;
++	mode->height_mm = ctx->height_mm;
++	connector->display_info.width_mm = mode->width_mm;
++	connector->display_info.height_mm = mode->height_mm;
++
++	mode->type = DRM_MODE_TYPE_DRIVER | DRM_MODE_TYPE_PREFERRED;
++	drm_mode_probed_add(connector, mode);
++
++	return 1;
++}
++
++static const struct drm_panel_funcs hsd101pww_drm_funcs = {
++	.disable = hsd101pww_disable,
++	.enable = hsd101pww_enable,
++	.get_modes = hsd101pww_get_modes,
++};
++
++static int hsd101pww_probe(struct platform_device *pdev)
++{
++	struct device *dev = &pdev->dev;
++	struct hsd101pww *ctx;
++	struct device_node *np = dev->of_node;
++	int ret;
++
++	ctx = devm_kzalloc(dev, sizeof(struct hsd101pww), GFP_KERNEL);
++	if (!ctx)
++		return -ENOMEM;
++
++	ret = of_get_videomode(np, &ctx->vm, 0);
++	if (ret < 0)
++		return ret;
++
++	of_property_read_u32(np, "panel-width-mm", &ctx->width_mm);
++	of_property_read_u32(np, "panel-height-mm", &ctx->height_mm);
++
++	ctx->enable_gpio = of_get_named_gpio(np, "enable-gpio", 0);
++	if (ctx->enable_gpio < 0) {
++		dev_err(dev, "failed to get led-gpio\n");
++		return -EIO;
++	}
++	ret = gpio_is_valid(ctx->enable_gpio);
++	if (!ret) {
++		dev_err(dev, "led-gpio is not valid (gpio=%d)\n",
++			ctx->enable_gpio);
++		return -EIO;
++	}
++	ret = devm_gpio_request(dev, ctx->enable_gpio, pdev->name);
++	if (ret) {
++		dev_err(dev, "failed to request led-gpio\n");
++		return -EIO;
++	}
++	/* set gpio as output and disable it */
++	gpio_direction_output(ctx->enable_gpio, 0);
++
++	drm_panel_init(&ctx->panel);
++	ctx->panel.dev = dev;
++	ctx->panel.funcs = &hsd101pww_drm_funcs;
++
++	return drm_panel_add(&ctx->panel);
++}
++
++static int hsd101pww_remove(struct platform_device *pdev)
++{
++	struct hsd101pww *ctx = dev_get_drvdata(&pdev->dev);
++
++	hsd101pww_disable(&ctx->panel);
++
++	drm_panel_remove(&ctx->panel);
++
++	return 0;
++}
++
++const struct of_device_id hsd101pww_of_match[] = {
++	{ .compatible = "hannstar,hsd101pww" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, hsd101pww_of_match);
++
++static struct platform_driver hsd101pww_driver = {
++	.driver = {
++		.name	= "hsd101pww",
++		.owner	= THIS_MODULE,
++		.of_match_table = hsd101pww_of_match,
++	},
++	.probe		= hsd101pww_probe,
++	.remove		= hsd101pww_remove,
++};
++
++module_platform_driver(hsd101pww_driver);
++
++MODULE_AUTHOR("Vincent Abriou <vincent.abriou@st.com>");
++MODULE_DESCRIPTION("hsd101pww LCD Driver");
++MODULE_LICENSE("GPL v2");
+diff --git a/drivers/gpu/drm/sti/sti_crtc.c b/drivers/gpu/drm/sti/sti_crtc.c
+index e992bed..d45a433 100644
+--- a/drivers/gpu/drm/sti/sti_crtc.c
++++ b/drivers/gpu/drm/sti/sti_crtc.c
+@@ -134,21 +134,6 @@ sti_crtc_mode_set_nofb(struct drm_crtc *crtc)
+ 	sti_crtc_mode_set(crtc, &crtc->state->adjusted_mode);
+ }
+ 
+-static void sti_crtc_atomic_begin(struct drm_crtc *crtc,
+-				  struct drm_crtc_state *old_crtc_state)
+-{
+-	struct sti_mixer *mixer = to_sti_mixer(crtc);
+-
+-	if (crtc->state->event) {
+-		crtc->state->event->pipe = drm_crtc_index(crtc);
+-
+-		WARN_ON(drm_crtc_vblank_get(crtc) != 0);
+-
+-		mixer->pending_event = crtc->state->event;
+-		crtc->state->event = NULL;
+-	}
+-}
+-
+ static void sti_crtc_atomic_flush(struct drm_crtc *crtc,
+ 				  struct drm_crtc_state *old_crtc_state)
+ {
+@@ -156,6 +141,8 @@ static void sti_crtc_atomic_flush(struct drm_crtc *crtc,
+ 	struct sti_mixer *mixer = to_sti_mixer(crtc);
+ 	struct sti_compositor *compo = dev_get_drvdata(mixer->dev);
+ 	struct drm_plane *p;
++	struct drm_pending_vblank_event *event;
++	unsigned long flags;
+ 
+ 	DRM_DEBUG_DRIVER("\n");
+ 
+@@ -220,13 +207,24 @@ static void sti_crtc_atomic_flush(struct drm_crtc *crtc,
+ 			break;
+ 		}
+ 	}
++
++	event = crtc->state->event;
++	if (event) {
++		crtc->state->event = NULL;
++
++		spin_lock_irqsave(&crtc->dev->event_lock, flags);
++		if (drm_crtc_vblank_get(crtc) == 0)
++			drm_crtc_arm_vblank_event(crtc, event);
++		else
++			drm_crtc_send_vblank_event(crtc, event);
++		spin_unlock_irqrestore(&crtc->dev->event_lock, flags);
++	}
+ }
+ 
+ static const struct drm_crtc_helper_funcs sti_crtc_helper_funcs = {
+ 	.enable = sti_crtc_enable,
+ 	.disable = sti_crtc_disabling,
+ 	.mode_set_nofb = sti_crtc_mode_set_nofb,
+-	.atomic_begin = sti_crtc_atomic_begin,
+ 	.atomic_flush = sti_crtc_atomic_flush,
+ };
+ 
+@@ -250,7 +248,6 @@ int sti_crtc_vblank_cb(struct notifier_block *nb,
+ 	struct sti_compositor *compo;
+ 	struct drm_crtc *crtc = data;
+ 	struct sti_mixer *mixer;
+-	unsigned long flags;
+ 	struct sti_private *priv;
+ 	unsigned int pipe;
+ 
+@@ -267,14 +264,6 @@ int sti_crtc_vblank_cb(struct notifier_block *nb,
+ 
+ 	drm_crtc_handle_vblank(crtc);
+ 
+-	spin_lock_irqsave(&crtc->dev->event_lock, flags);
+-	if (mixer->pending_event) {
+-		drm_crtc_send_vblank_event(crtc, mixer->pending_event);
+-		drm_crtc_vblank_put(crtc);
+-		mixer->pending_event = NULL;
+-	}
+-	spin_unlock_irqrestore(&crtc->dev->event_lock, flags);
+-
+ 	if (mixer->status == STI_MIXER_DISABLING) {
+ 		struct drm_plane *p;
+ 
+@@ -317,19 +306,12 @@ void sti_crtc_disable_vblank(struct drm_device *drm_dev, unsigned int pipe)
+ 	struct sti_private *priv = drm_dev->dev_private;
+ 	struct sti_compositor *compo = priv->compo;
+ 	struct notifier_block *vtg_vblank_nb = &compo->vtg_vblank_nb[pipe];
+-	struct drm_crtc *crtc = &compo->mixer[pipe]->drm_crtc;
+ 	struct sti_vtg *vtg = compo->vtg[pipe];
+ 
+ 	DRM_DEBUG_DRIVER("\n");
+ 
+ 	if (sti_vtg_unregister_client(vtg, vtg_vblank_nb))
+ 		DRM_DEBUG_DRIVER("Warning: cannot unregister VTG notifier\n");
+-
+-	/* free the resources of the pending requests */
+-	if (compo->mixer[pipe]->pending_event) {
+-		drm_crtc_vblank_put(crtc);
+-		compo->mixer[pipe]->pending_event = NULL;
+-	}
+ }
+ 
+ static int sti_crtc_late_register(struct drm_crtc *crtc)
+diff --git a/drivers/gpu/drm/sti/sti_cursor.c b/drivers/gpu/drm/sti/sti_cursor.c
+index cca75bd..d7e9f8a 100644
+--- a/drivers/gpu/drm/sti/sti_cursor.c
++++ b/drivers/gpu/drm/sti/sti_cursor.c
+@@ -346,10 +346,10 @@ static int sti_cursor_late_register(struct drm_plane *drm_plane)
+ }
+ 
+ static const struct drm_plane_funcs sti_cursor_plane_helpers_funcs = {
+-	.update_plane = drm_atomic_helper_update_plane,
+-	.disable_plane = drm_atomic_helper_disable_plane,
++	.update_plane = sti_plane_update_plane,
++	.disable_plane = sti_plane_disable_plane,
+ 	.destroy = sti_cursor_destroy,
+-	.set_property = drm_atomic_helper_plane_set_property,
++	.set_property = sti_plane_set_property,
+ 	.reset = sti_plane_reset,
+ 	.atomic_duplicate_state = drm_atomic_helper_plane_duplicate_state,
+ 	.atomic_destroy_state = drm_atomic_helper_plane_destroy_state,
+diff --git a/drivers/gpu/drm/sti/sti_drv.c b/drivers/gpu/drm/sti/sti_drv.c
+index 9df3085..f2c3463 100644
+--- a/drivers/gpu/drm/sti/sti_drv.c
++++ b/drivers/gpu/drm/sti/sti_drv.c
+@@ -57,7 +57,9 @@ static int sti_drm_fps_set(void *data, u64 val)
+ 	list_for_each_entry(p, &drm_dev->mode_config.plane_list, head) {
+ 		struct sti_plane *plane = to_sti_plane(p);
+ 
++		memset(&plane->fps_info, 0, sizeof(plane->fps_info));
+ 		plane->fps_info.output = (val >> i) & 1;
++
+ 		i++;
+ 	}
+ 
+@@ -149,52 +151,6 @@ static void sti_drm_dbg_cleanup(struct drm_minor *minor)
+ 				 1, minor);
+ }
+ 
+-static void sti_atomic_schedule(struct sti_private *private,
+-				struct drm_atomic_state *state)
+-{
+-	private->commit.state = state;
+-	schedule_work(&private->commit.work);
+-}
+-
+-static void sti_atomic_complete(struct sti_private *private,
+-				struct drm_atomic_state *state)
+-{
+-	struct drm_device *drm = private->drm_dev;
+-
+-	/*
+-	 * Everything below can be run asynchronously without the need to grab
+-	 * any modeset locks at all under one condition: It must be guaranteed
+-	 * that the asynchronous work has either been cancelled (if the driver
+-	 * supports it, which at least requires that the framebuffers get
+-	 * cleaned up with drm_atomic_helper_cleanup_planes()) or completed
+-	 * before the new state gets committed on the software side with
+-	 * drm_atomic_helper_swap_state().
+-	 *
+-	 * This scheme allows new atomic state updates to be prepared and
+-	 * checked in parallel to the asynchronous completion of the previous
+-	 * update. Which is important since compositors need to figure out the
+-	 * composition of the next frame right after having submitted the
+-	 * current layout.
+-	 */
+-
+-	drm_atomic_helper_commit_modeset_disables(drm, state);
+-	drm_atomic_helper_commit_planes(drm, state, 0);
+-	drm_atomic_helper_commit_modeset_enables(drm, state);
+-
+-	drm_atomic_helper_wait_for_vblanks(drm, state);
+-
+-	drm_atomic_helper_cleanup_planes(drm, state);
+-	drm_atomic_state_free(state);
+-}
+-
+-static void sti_atomic_work(struct work_struct *work)
+-{
+-	struct sti_private *private = container_of(work,
+-			struct sti_private, commit.work);
+-
+-	sti_atomic_complete(private, private->commit.state);
+-}
+-
+ static int sti_atomic_check(struct drm_device *dev,
+ 			    struct drm_atomic_state *state)
+ {
+@@ -215,34 +171,12 @@ static int sti_atomic_check(struct drm_device *dev,
+ 	return ret;
+ }
+ 
+-static int sti_atomic_commit(struct drm_device *drm,
+-			     struct drm_atomic_state *state, bool nonblock)
++static int sti_drm_open(struct drm_device *ddev, struct drm_file *filp)
+ {
+-	struct sti_private *private = drm->dev_private;
+-	int err;
+-
+-	err = drm_atomic_helper_prepare_planes(drm, state);
+-	if (err)
+-		return err;
+-
+-	/* serialize outstanding nonblocking commits */
+-	mutex_lock(&private->commit.lock);
+-	flush_work(&private->commit.work);
+-
+-	/*
+-	 * This is the point of no return - everything below never fails except
+-	 * when the hw goes bonghits. Which means we can commit the new state on
+-	 * the software side now.
+-	 */
+-
+-	drm_atomic_helper_swap_state(state, true);
++	struct sti_private *private = ddev->dev_private;
+ 
+-	if (nonblock)
+-		sti_atomic_schedule(private, state);
+-	else
+-		sti_atomic_complete(private, state);
++	private->filp = filp;
+ 
+-	mutex_unlock(&private->commit.lock);
+ 	return 0;
+ }
+ 
+@@ -250,26 +184,14 @@ static void sti_output_poll_changed(struct drm_device *ddev)
+ {
+ 	struct sti_private *private = ddev->dev_private;
+ 
+-	if (!ddev->mode_config.num_connector)
+-		return;
+-
+-	if (private->fbdev) {
+-		drm_fbdev_cma_hotplug_event(private->fbdev);
+-		return;
+-	}
+-
+-	private->fbdev = drm_fbdev_cma_init(ddev, 32,
+-					    ddev->mode_config.num_crtc,
+-					    ddev->mode_config.num_connector);
+-	if (IS_ERR(private->fbdev))
+-		private->fbdev = NULL;
++	drm_fbdev_cma_hotplug_event(private->fbdev);
+ }
+ 
+ static const struct drm_mode_config_funcs sti_mode_config_funcs = {
+ 	.fb_create = drm_fb_cma_create,
+ 	.output_poll_changed = sti_output_poll_changed,
+ 	.atomic_check = sti_atomic_check,
+-	.atomic_commit = sti_atomic_commit,
++	.atomic_commit = drm_atomic_helper_commit,
+ };
+ 
+ static void sti_mode_config_init(struct drm_device *dev)
+@@ -304,6 +226,7 @@ static const struct file_operations sti_driver_fops = {
+ static struct drm_driver sti_driver = {
+ 	.driver_features = DRIVER_MODESET |
+ 	    DRIVER_GEM | DRIVER_PRIME | DRIVER_ATOMIC,
++	.open = sti_drm_open,
+ 	.gem_free_object_unlocked = drm_gem_cma_free_object,
+ 	.gem_vm_ops = &drm_gem_cma_vm_ops,
+ 	.dumb_create = drm_gem_cma_dumb_create,
+@@ -352,9 +275,6 @@ static int sti_init(struct drm_device *ddev)
+ 	dev_set_drvdata(ddev->dev, ddev);
+ 	private->drm_dev = ddev;
+ 
+-	mutex_init(&private->commit.lock);
+-	INIT_WORK(&private->commit.work, sti_atomic_work);
+-
+ 	drm_mode_config_init(ddev);
+ 
+ 	sti_mode_config_init(ddev);
+@@ -382,6 +302,8 @@ static void sti_cleanup(struct drm_device *ddev)
+ static int sti_bind(struct device *dev)
+ {
+ 	struct drm_device *ddev;
++	struct sti_private *private;
++	struct drm_fbdev_cma *fbdev;
+ 	int ret;
+ 
+ 	ddev = drm_dev_alloc(&sti_driver, dev);
+@@ -404,6 +326,17 @@ static int sti_bind(struct device *dev)
+ 
+ 	drm_mode_config_reset(ddev);
+ 
++	private = ddev->dev_private;
++	if (ddev->mode_config.num_connector) {
++		fbdev = drm_fbdev_cma_init(ddev, 32, ddev->mode_config.num_crtc,
++					   ddev->mode_config.num_connector);
++		if (IS_ERR(fbdev)) {
++			DRM_DEBUG_DRIVER("Warning: fails to create fbdev\n");
++			fbdev = NULL;
++		}
++		private->fbdev = fbdev;
++	}
++
+ 	return 0;
+ 
+ err_register:
+diff --git a/drivers/gpu/drm/sti/sti_drv.h b/drivers/gpu/drm/sti/sti_drv.h
+index 78ebe5e..de22b0d 100644
+--- a/drivers/gpu/drm/sti/sti_drv.h
++++ b/drivers/gpu/drm/sti/sti_drv.h
+@@ -19,18 +19,15 @@ struct sti_tvout;
+  * @compo:                 compositor
+  * @plane_zorder_property: z-order property for CRTC planes
+  * @drm_dev:               drm device
++ * @fbdev:                 framebuffer dev cma struct
++ * @drm_file:              drm file private data
+  */
+ struct sti_private {
+ 	struct sti_compositor *compo;
+ 	struct drm_property *plane_zorder_property;
+ 	struct drm_device *drm_dev;
+ 	struct drm_fbdev_cma *fbdev;
+-
+-	struct {
+-		struct drm_atomic_state *state;
+-		struct work_struct work;
+-		struct mutex lock;
+-	} commit;
++	struct drm_file *filp;
+ };
+ 
+ extern struct platform_driver sti_tvout_driver;
+diff --git a/drivers/gpu/drm/sti/sti_gdp.c b/drivers/gpu/drm/sti/sti_gdp.c
+index 81df309..b6c830c 100644
+--- a/drivers/gpu/drm/sti/sti_gdp.c
++++ b/drivers/gpu/drm/sti/sti_gdp.c
+@@ -610,7 +610,6 @@ static int sti_gdp_atomic_check(struct drm_plane *drm_plane,
+ 	struct sti_plane *plane = to_sti_plane(drm_plane);
+ 	struct sti_gdp *gdp = to_sti_gdp(plane);
+ 	struct drm_crtc *crtc = state->crtc;
+-	struct sti_compositor *compo = dev_get_drvdata(gdp->dev);
+ 	struct drm_framebuffer *fb =  state->fb;
+ 	struct drm_crtc_state *crtc_state;
+ 	struct sti_mixer *mixer;
+@@ -648,45 +647,30 @@ static int sti_gdp_atomic_check(struct drm_plane *drm_plane,
+ 		return -EINVAL;
+ 	}
+ 
+-	if (!gdp->vtg) {
+-		/* Register gdp callback */
+-		gdp->vtg = compo->vtg[mixer->id];
+-		if (sti_vtg_register_client(gdp->vtg,
+-					    &gdp->vtg_field_nb, crtc)) {
+-			DRM_ERROR("Cannot register VTG notifier\n");
++	/* Set gdp clock */
++	if (mode->clock && gdp->clk_pix) {
++		struct clk *clkp;
++		int rate = mode->clock * 1000;
++		int res;
++
++		/*
++		 * According to the mixer used, the gdp pixel clock
++		 * should have a different parent clock.
++		 */
++		if (mixer->id == STI_MIXER_MAIN)
++			clkp = gdp->clk_main_parent;
++		else
++			clkp = gdp->clk_aux_parent;
++
++		if (clkp)
++			clk_set_parent(gdp->clk_pix, clkp);
++
++		res = clk_set_rate(gdp->clk_pix, rate);
++		if (res < 0) {
++			DRM_ERROR("Cannot set rate (%dHz) for gdp\n",
++				  rate);
+ 			return -EINVAL;
+ 		}
+-
+-		/* Set and enable gdp clock */
+-		if (gdp->clk_pix) {
+-			struct clk *clkp;
+-			int rate = mode->clock * 1000;
+-			int res;
+-
+-			/*
+-			 * According to the mixer used, the gdp pixel clock
+-			 * should have a different parent clock.
+-			 */
+-			if (mixer->id == STI_MIXER_MAIN)
+-				clkp = gdp->clk_main_parent;
+-			else
+-				clkp = gdp->clk_aux_parent;
+-
+-			if (clkp)
+-				clk_set_parent(gdp->clk_pix, clkp);
+-
+-			res = clk_set_rate(gdp->clk_pix, rate);
+-			if (res < 0) {
+-				DRM_ERROR("Cannot set rate (%dHz) for gdp\n",
+-					  rate);
+-				return -EINVAL;
+-			}
+-
+-			if (clk_prepare_enable(gdp->clk_pix)) {
+-				DRM_ERROR("Failed to prepare/enable gdp\n");
+-				return -EINVAL;
+-			}
+-		}
+ 	}
+ 
+ 	DRM_DEBUG_KMS("CRTC:%d (%s) drm plane:%d (%s)\n",
+@@ -724,6 +708,31 @@ static void sti_gdp_atomic_update(struct drm_plane *drm_plane,
+ 	if (!crtc || !fb)
+ 		return;
+ 
++	if ((oldstate->fb == state->fb) &&
++	    (oldstate->crtc_x == state->crtc_x) &&
++	    (oldstate->crtc_y == state->crtc_y) &&
++	    (oldstate->crtc_w == state->crtc_w) &&
++	    (oldstate->crtc_h == state->crtc_h) &&
++	    (oldstate->src_x == state->src_x) &&
++	    (oldstate->src_y == state->src_y) &&
++	    (oldstate->src_w == state->src_w) &&
++	    (oldstate->src_h == state->src_h)) {
++		/* No change since last update, do not post cmd */
++		DRM_DEBUG_DRIVER("No change, not posting cmd\n");
++		plane->status = STI_PLANE_UPDATED;
++		return;
++	}
++
++	if (!gdp->vtg) {
++		struct sti_compositor *compo = dev_get_drvdata(gdp->dev);
++		struct sti_mixer *mixer = to_sti_mixer(crtc);
++
++		/* Register gdp callback */
++		gdp->vtg = compo->vtg[mixer->id];
++		sti_vtg_register_client(gdp->vtg, &gdp->vtg_field_nb, crtc);
++		clk_prepare_enable(gdp->clk_pix);
++	}
++
+ 	mode = &crtc->mode;
+ 	dst_x = state->crtc_x;
+ 	dst_y = state->crtc_y;
+@@ -882,10 +891,10 @@ static int sti_gdp_late_register(struct drm_plane *drm_plane)
+ }
+ 
+ static const struct drm_plane_funcs sti_gdp_plane_helpers_funcs = {
+-	.update_plane = drm_atomic_helper_update_plane,
+-	.disable_plane = drm_atomic_helper_disable_plane,
++	.update_plane = sti_plane_update_plane,
++	.disable_plane = sti_plane_disable_plane,
+ 	.destroy = sti_gdp_destroy,
+-	.set_property = drm_atomic_helper_plane_set_property,
++	.set_property = sti_plane_set_property,
+ 	.reset = sti_plane_reset,
+ 	.atomic_duplicate_state = drm_atomic_helper_plane_duplicate_state,
+ 	.atomic_destroy_state = drm_atomic_helper_plane_destroy_state,
+diff --git a/drivers/gpu/drm/sti/sti_hdmi.c b/drivers/gpu/drm/sti/sti_hdmi.c
+index 376b076..c15ed13 100644
+--- a/drivers/gpu/drm/sti/sti_hdmi.c
++++ b/drivers/gpu/drm/sti/sti_hdmi.c
+@@ -95,7 +95,6 @@
+ #define HDMI_CFG_HDCP_EN                BIT(2)
+ #define HDMI_CFG_ESS_NOT_OESS           BIT(3)
+ #define HDMI_CFG_H_SYNC_POL_NEG         BIT(4)
+-#define HDMI_CFG_SINK_TERM_DET_EN       BIT(5)
+ #define HDMI_CFG_V_SYNC_POL_NEG         BIT(6)
+ #define HDMI_CFG_422_EN                 BIT(8)
+ #define HDMI_CFG_FIFO_OVERRUN_CLR       BIT(12)
+@@ -159,7 +158,6 @@ struct sti_hdmi_connector {
+ 	struct drm_encoder *encoder;
+ 	struct sti_hdmi *hdmi;
+ 	struct drm_property *colorspace_property;
+-	struct drm_property *hdmi_mode_property;
+ };
+ 
+ #define to_sti_hdmi_connector(x) \
+@@ -266,12 +264,9 @@ static void hdmi_config(struct sti_hdmi *hdmi)
+ 
+ 	/* Select encryption type and the framing mode */
+ 	conf |= HDMI_CFG_ESS_NOT_OESS;
+-	if (hdmi->hdmi_mode == HDMI_MODE_HDMI)
++	if (hdmi->hdmi_monitor)
+ 		conf |= HDMI_CFG_HDMI_NOT_DVI;
+ 
+-	/* Enable sink term detection */
+-	conf |= HDMI_CFG_SINK_TERM_DET_EN;
+-
+ 	/* Set Hsync polarity */
+ 	if (hdmi->mode.flags & DRM_MODE_FLAG_NHSYNC) {
+ 		DRM_DEBUG_DRIVER("H Sync Negative\n");
+@@ -607,9 +602,6 @@ static void hdmi_dbg_cfg(struct seq_file *s, int val)
+ 	tmp = val & HDMI_CFG_ESS_NOT_OESS;
+ 	DBGFS_PRINT_STR("HDCP mode:", tmp ? "ESS enable" : "OESS enable");
+ 	seq_puts(s, "\t\t\t\t\t");
+-	tmp = val & HDMI_CFG_SINK_TERM_DET_EN;
+-	DBGFS_PRINT_STR("Sink term detection:", tmp ? "enable" : "disable");
+-	seq_puts(s, "\t\t\t\t\t");
+ 	tmp = val & HDMI_CFG_H_SYNC_POL_NEG;
+ 	DBGFS_PRINT_STR("Hsync polarity:", tmp ? "inverted" : "normal");
+ 	seq_puts(s, "\t\t\t\t\t");
+@@ -788,6 +780,95 @@ static void sti_hdmi_disable(struct drm_bridge *bridge)
+ 	hdmi->enabled = false;
+ }
+ 
++/**
++ * sti_hdmi_audio_get_non_coherent_n() - get N parameter for non-coherent
++ * clocks. None-coherent clocks means that audio and TMDS clocks have not the
++ * same source (drifts between clocks). In this case assumption is that CTS is
++ * automatically calculated by hardware.
++ *
++ * @audio_fs: audio frame clock frequency in Hz
++ *
++ * Values computed are based on table described in HDMI specification 1.4b
++ *
++ * Returns n value.
++ */
++static int sti_hdmi_audio_get_non_coherent_n(unsigned int audio_fs)
++{
++	unsigned int n;
++
++	switch (audio_fs) {
++	case 32000:
++		n = 4096;
++		break;
++	case 44100:
++		n = 6272;
++		break;
++	case 48000:
++		n = 6144;
++		break;
++	case 88200:
++		n = 6272 * 2;
++		break;
++	case 96000:
++		n = 6144 * 2;
++		break;
++	case 176400:
++		n = 6272 * 4;
++		break;
++	case 192000:
++		n = 6144 * 4;
++		break;
++	default:
++		/* Not pre-defined, recommended value: 128 * fs / 1000 */
++		n = (audio_fs * 128) / 1000;
++	}
++
++	return n;
++}
++
++static int hdmi_audio_configure(struct sti_hdmi *hdmi)
++{
++	int audio_cfg, n;
++	struct hdmi_audio_params *params = &hdmi->audio;
++	struct hdmi_audio_infoframe *info = &params->cea;
++
++	DRM_DEBUG_DRIVER("\n");
++
++	if (!hdmi->enabled)
++		return 0;
++
++	/* update N parameter */
++	n = sti_hdmi_audio_get_non_coherent_n(params->sample_rate);
++
++	DRM_DEBUG_DRIVER("Audio rate = %d Hz, TMDS clock = %d Hz, n = %d\n",
++			 params->sample_rate, hdmi->mode.clock * 1000, n);
++	hdmi_write(hdmi, n, HDMI_AUDN);
++
++	/* update HDMI registers according to configuration */
++	audio_cfg = HDMI_AUD_CFG_SPDIF_DIV_2 | HDMI_AUD_CFG_DTS_INVALID |
++		    HDMI_AUD_CFG_ONE_BIT_INVALID;
++
++	switch (info->channels) {
++	case 8:
++		audio_cfg |= HDMI_AUD_CFG_CH78_VALID;
++	case 6:
++		audio_cfg |= HDMI_AUD_CFG_CH56_VALID;
++	case 4:
++		audio_cfg |= HDMI_AUD_CFG_CH34_VALID | HDMI_AUD_CFG_8CH;
++	case 2:
++		audio_cfg |= HDMI_AUD_CFG_CH12_VALID;
++		break;
++	default:
++		DRM_ERROR("ERROR: Unsupported number of channels (%d)!\n",
++			  info->channels);
++		return -EINVAL;
++	}
++
++	hdmi_write(hdmi, audio_cfg, HDMI_AUDIO_CFG);
++
++	return hdmi_audio_infoframe_config(hdmi);
++}
++
+ static void sti_hdmi_pre_enable(struct drm_bridge *bridge)
+ {
+ 	struct sti_hdmi *hdmi = bridge->driver_private;
+@@ -826,9 +907,12 @@ static void sti_hdmi_pre_enable(struct drm_bridge *bridge)
+ 	if (hdmi_avi_infoframe_config(hdmi))
+ 		DRM_ERROR("Unable to configure AVI infoframe\n");
+ 
+-	/* Program AUDIO infoframe */
+-	if (hdmi_audio_infoframe_config(hdmi))
+-		DRM_ERROR("Unable to configure AUDIO infoframe\n");
++	if (hdmi->audio.enabled) {
++		if (hdmi_audio_configure(hdmi))
++			DRM_ERROR("Unable to configure audio\n");
++	} else {
++		hdmi_audio_infoframe_config(hdmi);
++	}
+ 
+ 	/* Program VS infoframe */
+ 	if (hdmi_vendor_infoframe_config(hdmi))
+@@ -892,6 +976,11 @@ static int sti_hdmi_connector_get_modes(struct drm_connector *connector)
+ 	if (!edid)
+ 		goto fail;
+ 
++	hdmi->hdmi_monitor = drm_detect_hdmi_monitor(edid);
++	DRM_DEBUG_KMS("%s : %dx%d cm\n",
++		      (hdmi->hdmi_monitor ? "hdmi monitor" : "dvi monitor"),
++		      edid->width_cm, edid->height_cm);
++
+ 	count = drm_add_edid_modes(connector, edid);
+ 	drm_mode_connector_update_edid_property(connector, edid);
+ 	drm_edid_to_eld(connector, edid);
+@@ -975,19 +1064,6 @@ static void sti_hdmi_connector_init_property(struct drm_device *drm_dev,
+ 	}
+ 	hdmi_connector->colorspace_property = prop;
+ 	drm_object_attach_property(&connector->base, prop, hdmi->colorspace);
+-
+-	/* hdmi_mode property */
+-	hdmi->hdmi_mode = DEFAULT_HDMI_MODE;
+-	prop = drm_property_create_enum(drm_dev, 0, "hdmi_mode",
+-					hdmi_mode_names,
+-					ARRAY_SIZE(hdmi_mode_names));
+-	if (!prop) {
+-		DRM_ERROR("fails to create colorspace property\n");
+-		return;
+-	}
+-	hdmi_connector->hdmi_mode_property = prop;
+-	drm_object_attach_property(&connector->base, prop, hdmi->hdmi_mode);
+-
+ }
+ 
+ static int
+@@ -1005,11 +1081,6 @@ sti_hdmi_connector_set_property(struct drm_connector *connector,
+ 		return 0;
+ 	}
+ 
+-	if (property == hdmi_connector->hdmi_mode_property) {
+-		hdmi->hdmi_mode = val;
+-		return 0;
+-	}
+-
+ 	DRM_ERROR("failed to set hdmi connector property\n");
+ 	return -EINVAL;
+ }
+@@ -1029,11 +1100,6 @@ sti_hdmi_connector_get_property(struct drm_connector *connector,
+ 		return 0;
+ 	}
+ 
+-	if (property == hdmi_connector->hdmi_mode_property) {
+-		*val = hdmi->hdmi_mode;
+-		return 0;
+-	}
+-
+ 	DRM_ERROR("failed to get hdmi connector property\n");
+ 	return -EINVAL;
+ }
+@@ -1078,97 +1144,6 @@ static struct drm_encoder *sti_hdmi_find_encoder(struct drm_device *dev)
+ 	return NULL;
+ }
+ 
+-/**
+- * sti_hdmi_audio_get_non_coherent_n() - get N parameter for non-coherent
+- * clocks. None-coherent clocks means that audio and TMDS clocks have not the
+- * same source (drifts between clocks). In this case assumption is that CTS is
+- * automatically calculated by hardware.
+- *
+- * @audio_fs: audio frame clock frequency in Hz
+- *
+- * Values computed are based on table described in HDMI specification 1.4b
+- *
+- * Returns n value.
+- */
+-static int sti_hdmi_audio_get_non_coherent_n(unsigned int audio_fs)
+-{
+-	unsigned int n;
+-
+-	switch (audio_fs) {
+-	case 32000:
+-		n = 4096;
+-		break;
+-	case 44100:
+-		n = 6272;
+-		break;
+-	case 48000:
+-		n = 6144;
+-		break;
+-	case 88200:
+-		n = 6272 * 2;
+-		break;
+-	case 96000:
+-		n = 6144 * 2;
+-		break;
+-	case 176400:
+-		n = 6272 * 4;
+-		break;
+-	case 192000:
+-		n = 6144 * 4;
+-		break;
+-	default:
+-		/* Not pre-defined, recommended value: 128 * fs / 1000 */
+-		n = (audio_fs * 128) / 1000;
+-	}
+-
+-	return n;
+-}
+-
+-static int hdmi_audio_configure(struct sti_hdmi *hdmi,
+-				struct hdmi_audio_params *params)
+-{
+-	int audio_cfg, n;
+-	struct hdmi_audio_infoframe *info = &params->cea;
+-
+-	DRM_DEBUG_DRIVER("\n");
+-
+-	if (!hdmi->enabled)
+-		return 0;
+-
+-	/* update N parameter */
+-	n = sti_hdmi_audio_get_non_coherent_n(params->sample_rate);
+-
+-	DRM_DEBUG_DRIVER("Audio rate = %d Hz, TMDS clock = %d Hz, n = %d\n",
+-			 params->sample_rate, hdmi->mode.clock * 1000, n);
+-	hdmi_write(hdmi, n, HDMI_AUDN);
+-
+-	/* update HDMI registers according to configuration */
+-	audio_cfg = HDMI_AUD_CFG_SPDIF_DIV_2 | HDMI_AUD_CFG_DTS_INVALID |
+-		    HDMI_AUD_CFG_ONE_BIT_INVALID;
+-
+-	switch (info->channels) {
+-	case 8:
+-		audio_cfg |= HDMI_AUD_CFG_CH78_VALID;
+-	case 6:
+-		audio_cfg |= HDMI_AUD_CFG_CH56_VALID;
+-	case 4:
+-		audio_cfg |= HDMI_AUD_CFG_CH34_VALID | HDMI_AUD_CFG_8CH;
+-	case 2:
+-		audio_cfg |= HDMI_AUD_CFG_CH12_VALID;
+-		break;
+-	default:
+-		DRM_ERROR("ERROR: Unsupported number of channels (%d)!\n",
+-			  info->channels);
+-		return -EINVAL;
+-	}
+-
+-	hdmi_write(hdmi, audio_cfg, HDMI_AUDIO_CFG);
+-
+-	hdmi->audio = *params;
+-
+-	return hdmi_audio_infoframe_config(hdmi);
+-}
+-
+ static void hdmi_audio_shutdown(struct device *dev, void *data)
+ {
+ 	struct sti_hdmi *hdmi = dev_get_drvdata(dev);
+@@ -1192,17 +1167,9 @@ static int hdmi_audio_hw_params(struct device *dev,
+ {
+ 	struct sti_hdmi *hdmi = dev_get_drvdata(dev);
+ 	int ret;
+-	struct hdmi_audio_params audio = {
+-		.sample_width = params->sample_width,
+-		.sample_rate = params->sample_rate,
+-		.cea = params->cea,
+-	};
+ 
+ 	DRM_DEBUG_DRIVER("\n");
+ 
+-	if (!hdmi->enabled)
+-		return 0;
+-
+ 	if ((daifmt->fmt != HDMI_I2S) || daifmt->bit_clk_inv ||
+ 	    daifmt->frame_clk_inv || daifmt->bit_clk_master ||
+ 	    daifmt->frame_clk_master) {
+@@ -1213,9 +1180,13 @@ static int hdmi_audio_hw_params(struct device *dev,
+ 		return -EINVAL;
+ 	}
+ 
+-	audio.enabled = true;
++	hdmi->audio.sample_width = params->sample_width;
++	hdmi->audio.sample_rate = params->sample_rate;
++	hdmi->audio.cea = params->cea;
++
++	hdmi->audio.enabled = true;
+ 
+-	ret = hdmi_audio_configure(hdmi, &audio);
++	ret = hdmi_audio_configure(hdmi);
+ 	if (ret < 0)
+ 		return ret;
+ 
+diff --git a/drivers/gpu/drm/sti/sti_hdmi.h b/drivers/gpu/drm/sti/sti_hdmi.h
+index 119bc35..4070123 100644
+--- a/drivers/gpu/drm/sti/sti_hdmi.h
++++ b/drivers/gpu/drm/sti/sti_hdmi.h
+@@ -30,19 +30,6 @@ struct hdmi_audio_params {
+ 	struct hdmi_audio_infoframe cea;
+ };
+ 
+-/* values for the framing mode property */
+-enum sti_hdmi_modes {
+-	HDMI_MODE_HDMI,
+-	HDMI_MODE_DVI,
+-};
+-
+-static const struct drm_prop_enum_list hdmi_mode_names[] = {
+-	{ HDMI_MODE_HDMI, "hdmi" },
+-	{ HDMI_MODE_DVI, "dvi" },
+-};
+-
+-#define DEFAULT_HDMI_MODE HDMI_MODE_HDMI
+-
+ static const struct drm_prop_enum_list colorspace_mode_names[] = {
+ 	{ HDMI_COLORSPACE_RGB, "rgb" },
+ 	{ HDMI_COLORSPACE_YUV422, "yuv422" },
+@@ -73,7 +60,7 @@ static const struct drm_prop_enum_list colorspace_mode_names[] = {
+  * @reset: reset control of the hdmi phy
+  * @ddc_adapt: i2c ddc adapter
+  * @colorspace: current colorspace selected
+- * @hdmi_mode: select framing for HDMI or DVI
++ * @hdmi_monitor: true if HDMI monitor detected else DVI monitor assumed
+  * @audio_pdev: ASoC hdmi-codec platform device
+  * @audio: hdmi audio parameters.
+  * @drm_connector: hdmi connector
+@@ -98,7 +85,7 @@ struct sti_hdmi {
+ 	struct reset_control *reset;
+ 	struct i2c_adapter *ddc_adapt;
+ 	enum hdmi_colorspace colorspace;
+-	enum sti_hdmi_modes hdmi_mode;
++	bool hdmi_monitor;
+ 	struct platform_device *audio_pdev;
+ 	struct hdmi_audio_params audio;
+ 	struct drm_connector *drm_connector;
+diff --git a/drivers/gpu/drm/sti/sti_hqvdp.c b/drivers/gpu/drm/sti/sti_hqvdp.c
+index f88130f..534a3fb 100644
+--- a/drivers/gpu/drm/sti/sti_hqvdp.c
++++ b/drivers/gpu/drm/sti/sti_hqvdp.c
+@@ -327,11 +327,12 @@ struct sti_hqvdp_cmd {
+  * @clk_pix_main:      pix main clock
+  * @reset:             reset control
+  * @vtg_nb:            notifier to handle VTG Vsync
+- * @btm_field_pending: is there any bottom field (interlaced frame) to display
++ * @nxt_field_pending: is there any other field (interlaced frame) to display
+  * @hqvdp_cmd:         buffer of commands
+  * @hqvdp_cmd_paddr:   physical address of hqvdp_cmd
+  * @vtg:               vtg for main data path
+  * @xp70_initialized:  true if xp70 is already initialized
++ * @vtg_registered:    true if registered to VTG
+  */
+ struct sti_hqvdp {
+ 	struct device *dev;
+@@ -342,11 +343,12 @@ struct sti_hqvdp {
+ 	struct clk *clk_pix_main;
+ 	struct reset_control *reset;
+ 	struct notifier_block vtg_nb;
+-	bool btm_field_pending;
++	bool nxt_field_pending;
+ 	void *hqvdp_cmd;
+ 	u32 hqvdp_cmd_paddr;
+ 	struct sti_vtg *vtg;
+ 	bool xp70_initialized;
++	bool vtg_registered;
+ };
+ 
+ #define to_sti_hqvdp(x) container_of(x, struct sti_hqvdp, plane)
+@@ -771,7 +773,7 @@ static void sti_hqvdp_disable(struct sti_hqvdp *hqvdp)
+ 		DRM_ERROR("XP70 could not revert to idle\n");
+ 
+ 	hqvdp->plane.status = STI_PLANE_DISABLED;
+-	hqvdp->xp70_initialized = false;
++	hqvdp->vtg_registered = false;
+ }
+ 
+ /**
+@@ -780,7 +782,7 @@ static void sti_hqvdp_disable(struct sti_hqvdp *hqvdp)
+  * @evt: event message
+  * @data: private data
+  *
+- * Handle VTG Vsync event, display pending bottom field
++ * Handle VTG Vsync event, display next field
+  *
+  * RETURNS:
+  * 0 on success.
+@@ -788,8 +790,8 @@ static void sti_hqvdp_disable(struct sti_hqvdp *hqvdp)
+ static int sti_hqvdp_vtg_cb(struct notifier_block *nb, unsigned long evt, void *data)
+ {
+ 	struct sti_hqvdp *hqvdp = container_of(nb, struct sti_hqvdp, vtg_nb);
+-	int btm_cmd_offset, top_cmd_offest;
+-	struct sti_hqvdp_cmd *btm_cmd, *top_cmd;
++	int next_cmd_offset, curr_cmd_offest;
++	struct sti_hqvdp_cmd *next_cmd, *curr_cmd;
+ 
+ 	if ((evt != VTG_TOP_FIELD_EVENT) && (evt != VTG_BOTTOM_FIELD_EVENT)) {
+ 		DRM_DEBUG_DRIVER("Unknown event\n");
+@@ -804,31 +806,41 @@ static int sti_hqvdp_vtg_cb(struct notifier_block *nb, unsigned long evt, void *
+ 		sti_hqvdp_disable(hqvdp);
+ 	}
+ 
+-	if (hqvdp->btm_field_pending) {
+-		/* Create the btm field command from the current one */
+-		btm_cmd_offset = sti_hqvdp_get_free_cmd(hqvdp);
+-		top_cmd_offest = sti_hqvdp_get_curr_cmd(hqvdp);
+-		if ((btm_cmd_offset == -1) || (top_cmd_offest == -1)) {
++	if (hqvdp->nxt_field_pending) {
++		/* Create the next field command from the current one */
++		next_cmd_offset = sti_hqvdp_get_free_cmd(hqvdp);
++		curr_cmd_offest = sti_hqvdp_get_curr_cmd(hqvdp);
++		if ((next_cmd_offset == -1) || (curr_cmd_offest == -1)) {
+ 			DRM_DEBUG_DRIVER("Warning: no cmd, will skip field\n");
+ 			return -EBUSY;
+ 		}
+ 
+-		btm_cmd = hqvdp->hqvdp_cmd + btm_cmd_offset;
+-		top_cmd = hqvdp->hqvdp_cmd + top_cmd_offest;
+-
+-		memcpy(btm_cmd, top_cmd, sizeof(*btm_cmd));
+-
+-		btm_cmd->top.config = TOP_CONFIG_INTER_BTM;
+-		btm_cmd->top.current_luma +=
+-				btm_cmd->top.luma_src_pitch / 2;
+-		btm_cmd->top.current_chroma +=
+-				btm_cmd->top.chroma_src_pitch / 2;
++		next_cmd = hqvdp->hqvdp_cmd + next_cmd_offset;
++		curr_cmd = hqvdp->hqvdp_cmd + curr_cmd_offest;
++
++		memcpy(next_cmd, curr_cmd, sizeof(*next_cmd));
++
++		if (curr_cmd->top.config == TOP_CONFIG_INTER_TOP) {
++			/* Display the bottom field now */
++			next_cmd->top.config = TOP_CONFIG_INTER_BTM;
++			next_cmd->top.current_luma +=
++					next_cmd->top.luma_src_pitch / 2;
++			next_cmd->top.current_chroma +=
++					next_cmd->top.chroma_src_pitch / 2;
++		} else {
++			/* Display the top field now */
++			next_cmd->top.config = TOP_CONFIG_INTER_TOP;
++			next_cmd->top.current_luma -=
++					next_cmd->top.luma_src_pitch / 2;
++			next_cmd->top.current_chroma -=
++					next_cmd->top.chroma_src_pitch / 2;
++		}
+ 
+ 		/* Post the command to mailbox */
+-		writel(hqvdp->hqvdp_cmd_paddr + btm_cmd_offset,
+-				hqvdp->regs + HQVDP_MBX_NEXT_CMD);
++		writel(hqvdp->hqvdp_cmd_paddr + next_cmd_offset,
++		       hqvdp->regs + HQVDP_MBX_NEXT_CMD);
+ 
+-		hqvdp->btm_field_pending = false;
++		hqvdp->nxt_field_pending = false;
+ 
+ 		dev_dbg(hqvdp->dev, "%s Posted command:0x%x\n",
+ 				__func__, hqvdp->hqvdp_cmd_paddr);
+@@ -1035,9 +1047,9 @@ static int sti_hqvdp_atomic_check(struct drm_plane *drm_plane,
+ 	src_w = state->src_w >> 16;
+ 	src_h = state->src_h >> 16;
+ 
+-	if (!sti_hqvdp_check_hw_scaling(hqvdp, mode,
+-					src_w, src_h,
+-					dst_w, dst_h)) {
++	if (mode->clock && !sti_hqvdp_check_hw_scaling(hqvdp, mode,
++						       src_w, src_h,
++						       dst_w, dst_h)) {
+ 		DRM_ERROR("Scaling beyond HW capabilities\n");
+ 		return -EINVAL;
+ 	}
+@@ -1064,23 +1076,25 @@ static int sti_hqvdp_atomic_check(struct drm_plane *drm_plane,
+ 		return -EINVAL;
+ 	}
+ 
+-	if (!hqvdp->xp70_initialized) {
++	if (!hqvdp->xp70_initialized)
+ 		/* Start HQVDP XP70 coprocessor */
+ 		sti_hqvdp_start_xp70(hqvdp);
+ 
++	if (!hqvdp->vtg_registered) {
+ 		/* Prevent VTG shutdown */
+ 		if (clk_prepare_enable(hqvdp->clk_pix_main)) {
+ 			DRM_ERROR("Failed to prepare/enable pix main clk\n");
+ 			return -EINVAL;
+ 		}
+ 
+-		/* Register VTG Vsync callback to handle bottom fields */
++		/* Register VTG Vsync callback to handle bottom/top fields */
+ 		if (sti_vtg_register_client(hqvdp->vtg,
+ 					    &hqvdp->vtg_nb,
+ 					    crtc)) {
+ 			DRM_ERROR("Cannot register VTG notifier\n");
+ 			return -EINVAL;
+ 		}
++		hqvdp->vtg_registered = true;
+ 	}
+ 
+ 	DRM_DEBUG_KMS("CRTC:%d (%s) drm plane:%d (%s)\n",
+@@ -1113,6 +1127,21 @@ static void sti_hqvdp_atomic_update(struct drm_plane *drm_plane,
+ 	if (!crtc || !fb)
+ 		return;
+ 
++	if ((oldstate->fb == state->fb) &&
++	    (oldstate->crtc_x == state->crtc_x) &&
++	    (oldstate->crtc_y == state->crtc_y) &&
++	    (oldstate->crtc_w == state->crtc_w) &&
++	    (oldstate->crtc_h == state->crtc_h) &&
++	    (oldstate->src_x == state->src_x) &&
++	    (oldstate->src_y == state->src_y) &&
++	    (oldstate->src_w == state->src_w) &&
++	    (oldstate->src_h == state->src_h)) {
++		/* No change since last update, do not post cmd */
++		DRM_DEBUG_DRIVER("No change, not posting cmd\n");
++		plane->status = STI_PLANE_UPDATED;
++		return;
++	}
++
+ 	mode = &crtc->mode;
+ 	dst_x = state->crtc_x;
+ 	dst_y = state->crtc_y;
+@@ -1172,8 +1201,14 @@ static void sti_hqvdp_atomic_update(struct drm_plane *drm_plane,
+ 
+ 	/* Handle interlaced */
+ 	if (fb->flags & DRM_MODE_FB_INTERLACED) {
+-		/* Top field to display */
+-		cmd->top.config = TOP_CONFIG_INTER_TOP;
++		/* Top or bottom field */
++		if (fb->flags & DRM_MODE_FB_BFF) {
++			cmd->top.config = TOP_CONFIG_INTER_BTM;
++			cmd->top.current_luma += cmd->top.luma_src_pitch;
++			cmd->top.current_chroma += cmd->top.chroma_src_pitch;
++		} else {
++			cmd->top.config = TOP_CONFIG_INTER_TOP;
++		}
+ 
+ 		/* Update pitches and vert size */
+ 		cmd->top.input_frame_size = (src_h / 2) << 16 | src_w;
+@@ -1200,7 +1235,7 @@ static void sti_hqvdp_atomic_update(struct drm_plane *drm_plane,
+ 
+ 	/* Interlaced : get ready to display the bottom field at next Vsync */
+ 	if (fb->flags & DRM_MODE_FB_INTERLACED)
+-		hqvdp->btm_field_pending = true;
++		hqvdp->nxt_field_pending = true;
+ 
+ 	dev_dbg(hqvdp->dev, "%s Posted command:0x%x\n",
+ 		__func__, hqvdp->hqvdp_cmd_paddr + cmd_offset);
+@@ -1252,10 +1287,10 @@ static int sti_hqvdp_late_register(struct drm_plane *drm_plane)
+ }
+ 
+ static const struct drm_plane_funcs sti_hqvdp_plane_helpers_funcs = {
+-	.update_plane = drm_atomic_helper_update_plane,
+-	.disable_plane = drm_atomic_helper_disable_plane,
++	.update_plane = sti_plane_update_plane,
++	.disable_plane = sti_plane_disable_plane,
+ 	.destroy = sti_hqvdp_destroy,
+-	.set_property = drm_atomic_helper_plane_set_property,
++	.set_property = sti_plane_set_property,
+ 	.reset = sti_plane_reset,
+ 	.atomic_duplicate_state = drm_atomic_helper_plane_duplicate_state,
+ 	.atomic_destroy_state = drm_atomic_helper_plane_destroy_state,
+diff --git a/drivers/gpu/drm/sti/sti_mixer.h b/drivers/gpu/drm/sti/sti_mixer.h
+index 830a3c4..e64a00e 100644
+--- a/drivers/gpu/drm/sti/sti_mixer.h
++++ b/drivers/gpu/drm/sti/sti_mixer.h
+@@ -28,7 +28,6 @@ enum sti_mixer_status {
+  * @regs: mixer registers
+  * @id: id of the mixer
+  * @drm_crtc: crtc object link to the mixer
+- * @pending_event: set if a flip event is pending on crtc
+  * @status: to know the status of the mixer
+  */
+ struct sti_mixer {
+@@ -36,7 +35,6 @@ struct sti_mixer {
+ 	void __iomem *regs;
+ 	int id;
+ 	struct drm_crtc drm_crtc;
+-	struct drm_pending_vblank_event *pending_event;
+ 	enum sti_mixer_status status;
+ };
+ 
+diff --git a/drivers/gpu/drm/sti/sti_plane.c b/drivers/gpu/drm/sti/sti_plane.c
+index ca4b371..f583f58 100644
+--- a/drivers/gpu/drm/sti/sti_plane.c
++++ b/drivers/gpu/drm/sti/sti_plane.c
+@@ -7,6 +7,7 @@
+  */
+ 
+ #include <drm/drmP.h>
++#include <drm/drm_atomic.h>
+ #include <drm/drm_fb_cma_helper.h>
+ #include <drm/drm_gem_cma_helper.h>
+ 
+@@ -65,9 +66,18 @@ void sti_plane_update_fps(struct sti_plane *plane,
+ 
+ 	fps->last_timestamp = now;
+ 	fps->last_frame_counter = fps->curr_frame_counter;
+-	fpks = (num_frames * 1000000) / ms_since_last;
+-	snprintf(plane->fps_info.fps_str, FPS_LENGTH, "%-6s @ %d.%.3d fps",
+-		 sti_plane_to_str(plane), fpks / 1000, fpks % 1000);
++
++	if (plane->drm_plane.fb) {
++		fpks = (num_frames * 1000000) / ms_since_last;
++		snprintf(plane->fps_info.fps_str, FPS_LENGTH,
++			 "%-8s %4dx%-4d %.4s @ %3d.%-3.3d fps (%s)",
++			 plane->drm_plane.name,
++			 plane->drm_plane.fb->width,
++			 plane->drm_plane.fb->height,
++			 (char *)&plane->drm_plane.fb->pixel_format,
++			 fpks / 1000, fpks % 1000,
++			 sti_plane_to_str(plane));
++	}
+ 
+ 	if (fps->curr_field_counter) {
+ 		/* Compute number of field updates */
+@@ -75,7 +85,7 @@ void sti_plane_update_fps(struct sti_plane *plane,
+ 		fps->last_field_counter = fps->curr_field_counter;
+ 		fipks = (num_fields * 1000000) / ms_since_last;
+ 		snprintf(plane->fps_info.fips_str,
+-			 FPS_LENGTH, " - %d.%.3d field/sec",
++			 FPS_LENGTH, " - %3d.%-3.3d field/sec",
+ 			 fipks / 1000, fipks % 1000);
+ 	} else {
+ 		plane->fps_info.fips_str[0] = '\0';
+@@ -130,3 +140,200 @@ void sti_plane_init_property(struct sti_plane *plane,
+ 	DRM_DEBUG_DRIVER("drm plane:%d mapped to %s\n",
+ 			 plane->drm_plane.base.id, sti_plane_to_str(plane));
+ }
++
++int sti_plane_set_property(struct drm_plane *plane,
++			   struct drm_property *property, uint64_t val)
++{
++	/*
++	 * Forked from drm_atomic_helper_plane_set_property().
++	 * Here we do not wait for vblank if the client is not atomic, so
++	 * DRM_IOCTL_MODE_OBJ_SETPROPERTY returns before vblank.
++	 */
++	struct drm_atomic_state *state;
++	struct drm_plane_state *plane_state;
++	struct sti_private *private = plane->dev->dev_private;
++	int ret = 0;
++
++	state = drm_atomic_state_alloc(plane->dev);
++	if (!state)
++		return -ENOMEM;
++
++	/* ->set_property is always called with all locks held. */
++	state->acquire_ctx = plane->dev->mode_config.acquire_ctx;
++retry:
++	plane_state = drm_atomic_get_plane_state(state, plane);
++	if (IS_ERR(plane_state)) {
++		ret = PTR_ERR(plane_state);
++		goto fail;
++	}
++
++	ret = drm_atomic_plane_set_property(plane, plane_state,
++					    property, val);
++	if (ret)
++		goto fail;
++
++	if (!private->filp->atomic)
++		state->legacy_cursor_update = true;
++
++	ret = drm_atomic_commit(state);
++	if (ret != 0)
++		goto fail;
++
++	/* Driver takes ownership of state on successful commit. */
++	return 0;
++fail:
++	if (ret == -EDEADLK)
++		goto backoff;
++
++	drm_atomic_state_free(state);
++
++	return ret;
++backoff:
++	drm_atomic_state_clear(state);
++	drm_atomic_legacy_backoff(state);
++
++	goto retry;
++}
++
++int sti_plane_update_plane(struct drm_plane *plane, struct drm_crtc *crtc,
++			   struct drm_framebuffer *fb,
++			   int crtc_x, int crtc_y,
++			   unsigned int crtc_w, unsigned int crtc_h,
++			   uint32_t src_x, uint32_t src_y,
++			   uint32_t src_w, uint32_t src_h)
++{
++	/*
++	 * Forked from drm_atomic_helper_update_plane().
++	 * Here we do not wait for vblank if the client is not atomic, so
++	 * DRM_IOCTL_MODE_SETPLANE returns before vblank.
++	 */
++
++	struct drm_atomic_state *state;
++	struct drm_plane_state *plane_state;
++	struct sti_private *private = plane->dev->dev_private;
++	int ret = 0;
++
++	state = drm_atomic_state_alloc(plane->dev);
++	if (!state)
++		return -ENOMEM;
++
++	state->acquire_ctx = drm_modeset_legacy_acquire_ctx(crtc);
++retry:
++	plane_state = drm_atomic_get_plane_state(state, plane);
++	if (IS_ERR(plane_state)) {
++		ret = PTR_ERR(plane_state);
++		goto fail;
++	}
++
++	ret = drm_atomic_set_crtc_for_plane(plane_state, crtc);
++	if (ret != 0)
++		goto fail;
++	drm_atomic_set_fb_for_plane(plane_state, fb);
++	plane_state->crtc_x = crtc_x;
++	plane_state->crtc_y = crtc_y;
++	plane_state->crtc_w = crtc_w;
++	plane_state->crtc_h = crtc_h;
++	plane_state->src_x = src_x;
++	plane_state->src_y = src_y;
++	plane_state->src_w = src_w;
++	plane_state->src_h = src_h;
++
++	if ((plane == crtc->cursor) || !private->filp->atomic)
++		state->legacy_cursor_update = true;
++
++	ret = drm_atomic_commit(state);
++	if (ret != 0)
++		goto fail;
++
++	/* Driver takes ownership of state on successful commit. */
++	return 0;
++fail:
++	if (ret == -EDEADLK)
++		goto backoff;
++
++	drm_atomic_state_free(state);
++
++	return ret;
++backoff:
++	drm_atomic_state_clear(state);
++	drm_atomic_legacy_backoff(state);
++
++	/*
++	 * Someone might have exchanged the framebuffer while we dropped locks
++	 * in the backoff code. We need to fix up the fb refcount tracking the
++	 * core does for us.
++	 */
++	plane->old_fb = plane->fb;
++
++	goto retry;
++}
++
++int sti_plane_disable_plane(struct drm_plane *plane)
++{
++	/*
++	 * Forked from drm_atomic_helper_disable_plane().
++	 * Here we do not wait for vblank if the client is not atomic, so
++	 * DRM_IOCTL_MODE_SETPLANE returns before vblank.
++	 */
++	struct drm_atomic_state *state;
++	struct drm_plane_state *plane_state;
++	struct sti_private *private = plane->dev->dev_private;
++	int ret = 0;
++
++	/*
++	 * FIXME: Without plane->crtc set we can't get at the implicit legacy
++	 * acquire context. The real fix will be to wire the acquire ctx through
++	 * everywhere we need it, but meanwhile prevent chaos by just skipping
++	 * this noop. The critical case is the cursor ioctls which a) only grab
++	 * crtc/cursor-plane locks (so we need the crtc to get at the right
++	 * acquire context) and b) can try to disable the plane multiple times.
++	 */
++	if (!plane->crtc)
++		return 0;
++
++	state = drm_atomic_state_alloc(plane->dev);
++	if (!state)
++		return -ENOMEM;
++
++	state->acquire_ctx = drm_modeset_legacy_acquire_ctx(plane->crtc);
++retry:
++	plane_state = drm_atomic_get_plane_state(state, plane);
++	if (IS_ERR(plane_state)) {
++		ret = PTR_ERR(plane_state);
++		goto fail;
++	}
++
++	if ((plane_state->crtc && (plane == plane->crtc->cursor)) ||
++	    !private->filp->atomic)
++		plane_state->state->legacy_cursor_update = true;
++
++	ret = __drm_atomic_helper_disable_plane(plane, plane_state);
++	if (ret != 0)
++		goto fail;
++
++	ret = drm_atomic_commit(state);
++	if (ret != 0)
++		goto fail;
++
++	/* Driver takes ownership of state on successful commit. */
++	return 0;
++fail:
++	if (ret == -EDEADLK)
++		goto backoff;
++
++	drm_atomic_state_free(state);
++
++	return ret;
++backoff:
++	drm_atomic_state_clear(state);
++	drm_atomic_legacy_backoff(state);
++
++	/*
++	 * Someone might have exchanged the framebuffer while we dropped locks
++	 * in the backoff code. We need to fix up the fb refcount tracking the
++	 * core does for us.
++	 */
++	plane->old_fb = plane->fb;
++
++	goto retry;
++}
+diff --git a/drivers/gpu/drm/sti/sti_plane.h b/drivers/gpu/drm/sti/sti_plane.h
+index ce3e8d6..59a5380 100644
+--- a/drivers/gpu/drm/sti/sti_plane.h
++++ b/drivers/gpu/drm/sti/sti_plane.h
+@@ -48,7 +48,7 @@ enum sti_plane_status {
+ 	STI_PLANE_DISABLED,
+ };
+ 
+-#define FPS_LENGTH 64
++#define FPS_LENGTH 128
+ struct sti_fps_info {
+ 	bool output;
+ 	unsigned int curr_frame_counter;
+@@ -82,5 +82,15 @@ void sti_plane_update_fps(struct sti_plane *plane,
+ 
+ void sti_plane_init_property(struct sti_plane *plane,
+ 			     enum drm_plane_type type);
++int sti_plane_set_property(struct drm_plane *plane,
++			   struct drm_property *property, uint64_t val);
+ void sti_plane_reset(struct drm_plane *plane);
++
++int sti_plane_update_plane(struct drm_plane *plane, struct drm_crtc *crtc,
++			   struct drm_framebuffer *fb,
++			   int crtc_x, int crtc_y,
++			   unsigned int crtc_w, unsigned int crtc_h,
++			   uint32_t src_x, uint32_t src_y,
++			   uint32_t src_w, uint32_t src_h);
++int sti_plane_disable_plane(struct drm_plane *plane);
+ #endif
+diff --git a/drivers/gpu/drm/virtio/Kconfig b/drivers/gpu/drm/virtio/Kconfig
+index e1afc3d..59774a7 100644
+--- a/drivers/gpu/drm/virtio/Kconfig
++++ b/drivers/gpu/drm/virtio/Kconfig
+@@ -1,8 +1,9 @@
+ config DRM_VIRTIO_GPU
+ 	tristate "Virtio GPU driver"
+-	depends on DRM && VIRTIO
+-        select DRM_KMS_HELPER
+-        select DRM_TTM
++	depends on DRM
++	select VIRTIO
++	select DRM_KMS_HELPER
++	select DRM_TTM
+ 	help
+ 	   This is the virtual GPU driver for virtio.  It can be used with
+            QEMU based VMMs (like KVM or Xen).
+diff --git a/include/drm/drm_crtc.h b/include/drm/drm_crtc.h
+index 0aa2925..b1345db 100644
+--- a/include/drm/drm_crtc.h
++++ b/include/drm/drm_crtc.h
+@@ -1368,6 +1368,8 @@ extern void drm_mode_config_init(struct drm_device *dev);
+ extern void drm_mode_config_reset(struct drm_device *dev);
+ extern void drm_mode_config_cleanup(struct drm_device *dev);
+ 
++extern void drm_cursor_release(struct drm_device *dev);
++
+ extern int drm_mode_set_config_internal(struct drm_mode_set *set);
+ 
+ extern struct drm_tile_group *drm_mode_create_tile_group(struct drm_device *dev,
+diff --git a/include/drm/drm_edid.h b/include/drm/drm_edid.h
+index c3a7d44..de93543 100644
+--- a/include/drm/drm_edid.h
++++ b/include/drm/drm_edid.h
+@@ -248,6 +248,7 @@ struct detailed_timing {
+ # define DRM_ELD_AUD_SYNCH_DELAY_MAX	0xfa	/* 500 ms */
+ 
+ #define DRM_ELD_SPEAKER			7
++# define DRM_ELD_SPEAKER_MASK		0x7f
+ # define DRM_ELD_SPEAKER_RLRC		(1 << 6)
+ # define DRM_ELD_SPEAKER_FLRC		(1 << 5)
+ # define DRM_ELD_SPEAKER_RC		(1 << 4)
+@@ -415,6 +416,18 @@ static inline int drm_eld_size(const uint8_t *eld)
+ }
+ 
+ /**
++ * drm_eld_get_spk_alloc - Get speaker allocation
++ * @eld: pointer to an ELD memory structure
++ *
++ * The returned value is the speakers mask. User has to use %DRM_ELD_SPEAKER
++ * field definitions to identify speakers.
++ */
++static inline u8 drm_eld_get_spk_alloc(const uint8_t *eld)
++{
++	return eld[DRM_ELD_SPEAKER] & DRM_ELD_SPEAKER_MASK;
++}
++
++/**
+  * drm_eld_get_conn_type - Get device type hdmi/dp connected
+  * @eld: pointer to an ELD memory structure
+  *
+diff --git a/include/drm/drm_fb_helper.h b/include/drm/drm_fb_helper.h
+index ed8edfe..1682a67 100644
+--- a/include/drm/drm_fb_helper.h
++++ b/include/drm/drm_fb_helper.h
+@@ -293,8 +293,7 @@ struct drm_display_mode *
+ drm_has_preferred_mode(struct drm_fb_helper_connector *fb_connector,
+ 			int width, int height);
+ struct drm_display_mode *
+-drm_pick_cmdline_mode(struct drm_fb_helper_connector *fb_helper_conn,
+-		      int width, int height);
++drm_pick_cmdline_mode(struct drm_fb_helper_connector *fb_helper_conn);
+ 
+ int drm_fb_helper_add_one_connector(struct drm_fb_helper *fb_helper, struct drm_connector *connector);
+ int drm_fb_helper_remove_one_connector(struct drm_fb_helper *fb_helper,
+diff --git a/include/uapi/drm/drm_mode.h b/include/uapi/drm/drm_mode.h
+index df0e350..a13aa9d 100644
+--- a/include/uapi/drm/drm_mode.h
++++ b/include/uapi/drm/drm_mode.h
+@@ -370,6 +370,7 @@ struct drm_mode_fb_cmd {
+ 
+ #define DRM_MODE_FB_INTERLACED	(1<<0) /* for interlaced framebuffers */
+ #define DRM_MODE_FB_MODIFIERS	(1<<1) /* enables ->modifer[] */
++#define DRM_MODE_FB_BFF		(1<<2) /* if interlaced, bottom field first */
+ 
+ struct drm_mode_fb_cmd2 {
+ 	__u32 fb_id;
+-- 
+2.7.4
+
