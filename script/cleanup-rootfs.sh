@@ -12,7 +12,6 @@
 #       CREATED: 10/14/2013 10:40:02 AM CEST
 #      REVISION:  ---
 #===============================================================================
-BUILD_TMP_DIR="${BUILDDIR}/tmp-rpb_wayland-glibc"
 
 ######################################################
 # Choice rootfs
@@ -23,8 +22,8 @@ choice_rootfs() {
         local i=1
         LIST=`find ${BUILDDIR}/ -maxdepth 1 -name rootfs_* | sed -e 's#'"${BUILDDIR}"'/rootfs_##'`
         echo ""
-        echo "From ${BUILD_TMP_DIR}/work/"
-        echo "Images are:"
+        echo "From ${BUILDDIR}/"
+        echo "Images rootfs are:"
         for l in $LIST;
         do
             if [ ! -z $l ];
@@ -63,7 +62,8 @@ choice_rootfs() {
         fi
         echo "Your choice: $selection"
     else
-        echo "ERROR: you must have launched the compilation of image before."
+        echo "WARNING: ${BUILDDIR} is empty"
+        echo "WARNING: Nothing to clean..."
         read
         return 1;
     fi
@@ -76,10 +76,13 @@ choice_rootfs() {
 # Verify environment variable
 #
 verify_env() {
-if [ "X$BUILDDIR" == "X" ];
+if [ "X${BUILDDIR}" == "X" ];
 then
-    echo "[ERROR]: You must source the setup-environment"
-    echo "[ERROR]:   MACHINE=stih410-b2260 DISTRO=rpb-wayland source ./setup-environment"
+    echo "[ERROR]: You must init your OpenEmbedded environment"
+    echo "[ERROR]:   source openembedded-core/oe-init-build-env"
+    echo ""
+    echo "[ERROR][RPB]: You must source the setup-environment"
+    echo "[ERROR][RPB]:   MACHINE=stih410-b2260 DISTRO=rpb-wayland source ./setup-environment"
     echo ""
     return 1
 else
@@ -106,15 +109,9 @@ then
 fi
 
 echo
-echo "Clean up for ${OUT_ROOTFS_PATH##$ST_OE_ROOT_DIR} folder:"
-if [ -f /usr/local/sbin/sudo-chown ];
-then
-    echo "[Remove rootfs folder]"
-    sudo-rm -rf $OUT_ROOTFS_PATH
-else
-    echo "[Remove rootfs folder]"
-    sudo rm -rf $OUT_ROOTFS_PATH
-fi
+echo "Clean up for ${OUT_ROOTFS_PATH#$(dirname $BUILDDIR)/} folder:"
+echo "[Remove rootfs folder]"
+sudo rm -rf $OUT_ROOTFS_PATH
 echo "[Remove NFS export]"
 sudo /usr/sbin/exportfs -u *:$OUT_ROOTFS_PATH
 

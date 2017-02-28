@@ -11,7 +11,6 @@
 #      REVISION:  ---
 #===============================================================================
 TFTP_PATH="/tftpboot"
-BUILD_TMP_DIR="${BUILDDIR}/tmp-rpb_wayland-glibc"
 
 #---------------------------------------
 # verify tftp server
@@ -38,9 +37,6 @@ EOF
     echo "[ERROR]:   sudo /etc/init.d/xinetd reload"
     echo "[ERROR]:   sudo /etc/init.d/xinetd restart"
     echo ""
-    echo "[ST]: You must install tftp server"
-    echo "[ST]:   sudo apt instal st-tftp"
-    echo ""
     return 1
 else
     return 0
@@ -51,10 +47,13 @@ fi
 # verify environment variable
 #
 verify_env() {
-if [ "X$BUILDDIR" == "X" ];
+if [ "X${BUILDDIR}" == "X" ];
 then
-    echo "[ERROR]: You must source the setup-environment"
-    echo "[ERROR]:   MACHINE=stih410-b2260 DISTRO=rpb-wayland source ./setup-environment"
+    echo "[ERROR]: You must init your OpenEmbedded environment"
+    echo "[ERROR]:   source openembedded-core/oe-init-build-env"
+    echo ""
+    echo "[ERROR][RPB]: You must source the setup-environment"
+    echo "[ERROR][RPB]:   MACHINE=stih410-b2260 DISTRO=rpb-wayland source ./setup-environment"
     echo ""
     return 1
 else
@@ -62,65 +61,65 @@ else
 fi
 }
 
-#----------------------------------------------
-# Choice Kernel
-# --
+#------------------------------------------------
+# _checklist <LIST> <ELEMENT>
+# Return 0 if element is in list, else 1
 #
-choice_kernel() {
-    if [[ -d ${BUILD_TMP_DIR} ]]; then
-        unset LUNCH_KERNEL_MENU_CHOICES
-        local i=1
-        LIST=`find ${BUILD_TMP_DIR}/work/ -maxdepth 4 -name "linux-st*-standard-build" | sed -e "s#${BUILD_TMP_DIR}/work/##" | sort`
-        echo ""
-        NUMBER=`find ${BUILD_TMP_DIR}/work/ -maxdepth 4 -name "linux-st*-standard-build" | wc -l`
-        if [ $NUMBER -eq 1 ];
-        then
-            selection=$LIST
-            echo "Kernel: $selection"
-        else
-            echo "Kernel are:"
-            for l in $LIST;
-            do
-                if [ ! -z $l ];
-                then
-                    printf "%3.3s. %s\n" $i $l
-                    LUNCH_KERNEL_MENU_CHOICES=(${LUNCH_KERNEL_MENU_CHOICES[@]} $l)
-                    i=$(($i+1))
-                fi
-            done
-            echo -n "Which one would you like? [1] "
-            read answer
+_checklist() {
+    for l in $1
+    do
+        [[ $2 = $l ]] && return 0
+    done
+    return 1
+}
 
-            if [ -z "$answer" ]
-            then
-                answer=1
-                selection=${LUNCH_KERNEL_MENU_CHOICES[$(($answer-1))]}
-            elif (echo -n $answer | grep -q -e "^[0-9][0-9]*$")
-            then
-                if [ $answer -le ${#LUNCH_KERNEL_MENU_CHOICES[@]} ]
-                then
-                    selection=${LUNCH_KERNEL_MENU_CHOICES[$(($answer-1))]}
-                fi
-            elif (echo -n $answer | grep -q -e "^[^\-][^\-]*-[^\-][^\-]*$")
-            then
-                selection=$answer
-            fi
+#------------------------------------------------
+# _choice <CHOICE> <LIST-FOR-CHOICE>
+#
+_choice() {
+    unset LUNCH_BOARD_MENU_CHOICES
 
-            if [ -z "$selection" ]
-            then
-                echo
-                echo "Invalid choice: $answer"
-                return 1
-            fi
-            echo "Your choice: $selection"
-        fi
+    local __SELECTED_CHOICE=$1
+    local LIST=$2
+
+    local default_choice="$(echo ${LIST} | cut -d' ' -f1)"
+    local i=1
+    local selection=""
+
+    if [ $(echo "${LIST}" | wc -w) -eq 1 ]; then
+        selection=${LIST}
     else
-        echo "ERROR: you must have launched the compilation of kernel before."
-        read
-        return 1;
+        for l in ${LIST};
+        do
+            printf "%3.3s. %s\n" $i $l
+            LUNCH_BOARD_MENU_CHOICES=(${LUNCH_BOARD_MENU_CHOICES[@]} $l)
+            i=$(($i+1))
+        done
+        echo -n "Which one would you like? [${default_choice}] "
+        read answer
+        if [ -z "$answer" ]
+        then
+            selection=${default_choice}
+        elif (echo -n $answer | grep -q -e "^[0-9][0-9]*$")
+        then
+            if [ $answer -le ${#LUNCH_BOARD_MENU_CHOICES[@]} ]
+            then
+                selection=${LUNCH_BOARD_MENU_CHOICES[$(($answer-1))]}
+            fi
+        elif (_checklist "${LIST}" $answer)
+        then
+            selection=$answer
+        fi
+        if [ -z "$selection" ]
+        then
+            echo
+            echo "Invalid choice: $answer"
+            return 1
+        fi
     fi
-
-    OUT_KERNEL=${BUILD_TMP_DIR}/work/$selection/
+    echo "Your choice: $selection"
+    #return selection to external var
+    eval $__SELECTED_CHOICE=$selection
     return 0
 }
 
@@ -129,122 +128,76 @@ choice_kernel() {
 # --
 #
 choice_board() {
-    if [[ -d $OUT_KERNEL ]]; then
-        unset LUNCH_BOARD_MENU_CHOICES
-        local i=1
-        LIST=`find $OUT_KERNEL/arch/arm/boot -maxdepth 1 -name "*.dtb" -exec basename {} \; | sed "s/\.dtb//" | sort`
+    if [ -d $OUT_KERNEL ]; then
+        if [ "$OUT_KERNEL" = "$(dirname ${ROOTFS_TARBALL_PATH})" ]; then
+            LIST=`find $OUT_KERNEL -maxdepth 1 -lname "*.dtb" -exec basename {} \; | sed "s/\.dtb//" | sort`
+        else
+            LIST=`find $OUT_KERNEL -maxdepth 1 -name "*.dtb" -exec basename {} \; | sed "s/\.dtb//" | sort`
+        fi
         echo ""
         echo "Targets are:"
-        for l in $LIST;
-        do
-            printf "%3.3s. %s\n" $i $l
-            LUNCH_BOARD_MENU_CHOICES=(${LUNCH_BOARD_MENU_CHOICES[@]} $l)
-            i=$(($i+1))
-        done
-        if [ $i -gt 0 ];
-        then
-            SELECTED_BOARD=1
-        fi
-        echo -n "Which one would you like? [$SELECTED_BOARD] "
-        read answer
-        selection=$line
-
-        if [ -z "$answer" ]
-        then
-            selection=$SELECTED_BOARD
-        elif (echo -n $answer | grep -q -e "^[0-9][0-9]*$")
-        then
-            if [ $answer -le ${#LUNCH_BOARD_MENU_CHOICES[@]} ]
-            then
-                selection=${LUNCH_BOARD_MENU_CHOICES[$(($answer-1))]}
-            fi
-        elif (echo -n $answer | grep -q -e "^[^\-][^\-]*-[^\-][^\-]*$")
-        then
-            if [ -f $ST_OE_ROOT_DIR/sources/platform/target/$answer.config ];
-            then
-                selection=$answer
-            fi
-        fi
-
-        if [ -z "$selection" ]
-        then
-            echo
-            echo "Invalid choice: $answer"
-            return 1
-        fi
-        echo "Your choice: $selection"
+        _choice TARGET_BOARD "$LIST"
+        #check and forward error return code
+        [[ $? -eq 1 ]] && return 1
     else
-        echo "ERROR: platform sources are not available."
+        echo "ERROR: you must have launched the compilation of kernel before."
         read
         return 1
     fi
-    TARGET_BOARD=$selection
-    BOARD_NAME=`echo $TARGET_BOARD | sed "s/stih[0-9][0-9][0-9]-//"`
+    BOARD_NAME=`echo ${TARGET_BOARD} | sed "s/stih[0-9][0-9][0-9]-//"`
     return 0
 }
+
+#------------------------------------------------
+# Choice Kernel
+# --
+#
+choice_kernel() {
+    if [ -d ${BUILD_TMP_DIR} ]; then
+        LIST=`find ${BUILD_TMP_DIR}/work/ -maxdepth 4 -name "linux-st*-standard-build" | sed -e "s#${BUILD_TMP_DIR}/work/##" | sort`
+        echo ""
+        echo "Kernels are:"
+        _choice TARGET_KERNEL "$LIST"
+        #check and forward error return code
+        [[ $? -eq 1 ]] && return 1
+    else
+        echo "ERROR: you must have launched the compilation of kernel before."
+        read
+        return 1;
+    fi
+    # Init OUT_KERNEL with correct value
+    if [ -d ${BUILD_TMP_DIR}/work/${TARGET_KERNEL}/arch/arm/boot ]; then
+        OUT_KERNEL=${BUILD_TMP_DIR}/work/${TARGET_KERNEL}/arch/arm/boot
+    else
+        OUT_KERNEL=$(dirname ${ROOTFS_TARBALL_PATH})
+    fi
+    return 0
+}
+
 #----------------------------------------------
 # Choice rootfs
 # --
 #
 choice_rootfs() {
-    if [[ -d ${BUILDDIR} ]]; then
-        unset LUNCH_IMAGES_MENU_CHOICES
-        local i=1
-        LIST=`find ${BUILD_TMP_DIR}/deploy/images/ -maxdepth 2 -lname "*.tar.gz" | sed 's#.*/\(.*\)\.tar\.gz#\1#' | sort`
+    if [ -d ${DEPLOY_DIR} ]; then
+        LIST=`find ${DEPLOY_DIR}/images/ -maxdepth 2 -lname "*.tar.bz2" | sed 's#.*/\(.*\)\.tar\.bz2#\1#' | sort`
         echo ""
-        NUMBER=`find ${BUILD_TMP_DIR}/deploy/images/ -maxdepth 2 -lname "*.tar.gz" | wc -l`
-        if [ $NUMBER -eq 1 ];
-        then
-            selection=$LIST
-            echo "Image: $selection"
-        else
-            echo "Image are:"
-            for l in $LIST;
-            do
-                if [ ! -z $l ];
-                then
-                    printf "%3.3s. %s\n" $i $l
-                    LUNCH_IMAGES_MENU_CHOICES=(${LUNCH_IMAGES_MENU_CHOICES[@]} $l)
-                    i=$(($i+1))
-                fi
-            done
-            echo -n "Which one would you like? [1] "
-            read answer
-
-            if [ -z "$answer" ]
-            then
-                answer=1
-                selection=${LUNCH_IMAGES_MENU_CHOICES[$(($answer-1))]}
-            elif (echo -n $answer | grep -q -e "^[0-9][0-9]*$")
-            then
-                if [ $answer -le ${#LUNCH_IMAGES_MENU_CHOICES[@]} ]
-                then
-                    selection=${LUNCH_IMAGES_MENU_CHOICES[$(($answer-1))]}
-                fi
-            elif (echo -n $answer | grep -q -e "^[^\-][^\-]*-[^\-][^\-]*$")
-            then
-                selection=$answer
-            fi
-
-            if [ -z "$selection" ]
-            then
-                echo
-                echo "Invalid choice: $answer"
-                return 1
-            fi
-            echo "Your choice: $selection"
-        fi
+        echo "Images are:"
+        _choice TARGET_ROOTFS "$LIST"
+        #check and forward error return code
+        [[ $? -eq 1 ]] && return 1
     else
         echo "ERROR: you must have launched the compilation of image before."
         read
         return 1;
     fi
+
     # Extract selected rootfs
 
     # Init path to ROOTFS
-    OUT_ROOTFS_PATH=${BUILDDIR}/rootfs_$selection/
+    OUT_ROOTFS_PATH=${BUILDDIR}/rootfs_${TARGET_ROOTFS}/
     # Init path to TARBALL
-    ROOTFS_TARBALL_PATH=`find ${BUILD_TMP_DIR}/deploy/images/ -maxdepth 2 -lname "*.tar.gz" | grep /$selection.tar.gz`
+    ROOTFS_TARBALL_PATH=`find ${DEPLOY_DIR}/images/ -maxdepth 2 -lname "*.tar.bz2" | grep /${TARGET_ROOTFS}.tar.bz2`
 
     if ! [ -e ${OUT_ROOTFS_PATH} ]; then
         mkdir ${OUT_ROOTFS_PATH}
@@ -255,13 +208,12 @@ choice_rootfs() {
         echo "                WARNING"
         echo "***************************************"
         echo "***************************************"
-        echo "Folder '${OUT_ROOTFS_PATH}' already exists."
+        echo "Folder '${OUT_ROOTFS_PATH#$(dirname $BUILDDIR)/}' already exists."
         echo -n "    Do you want to override its content [y/N] ? "
         read answer
         if [[ "$answer" =~ ^[Yy]+[ESes]* ]]; then
             echo
-            echo "Overriding content of '${OUT_ROOTFS_PATH}' folder !!!"
-            echo
+            echo "Overriding content of '${OUT_ROOTFS_PATH#$(dirname $BUILDDIR)/}' folder !!!"
         else
             echo
             echo "***************************************"
@@ -269,14 +221,14 @@ choice_rootfs() {
             echo "                WARNING"
             echo "***************************************"
             echo "***************************************"
-            echo "Keeping existing '${OUT_ROOTFS_PATH}' folder WITHOUT any modifications"
-            echo
+            echo "Keeping existing '${OUT_ROOTFS_PATH#$(dirname $BUILDDIR)/}' folder WITHOUT any modifications"
             return 0
         fi
     fi
     echo
-    echo "[INFO] Extracting ${ROOTFS_TARBALL_PATH} to ${OUT_ROOTFS_PATH}"
-    sudo tar xzf ${ROOTFS_TARBALL_PATH} -C ${OUT_ROOTFS_PATH} --overwrite --checkpoint=.1000
+    echo "[INFO] Extracting ${ROOTFS_TARBALL_PATH#$(dirname $BUILDDIR)/} to ${OUT_ROOTFS_PATH#$(dirname $BUILDDIR)/}"
+    sudo tar xjf ${ROOTFS_TARBALL_PATH} -C ${OUT_ROOTFS_PATH} --overwrite --checkpoint=.1000
+    echo
     echo ">>> Done"
     return 0
 }
@@ -286,7 +238,12 @@ choice_rootfs() {
 # --
 #
 export_nfs_root() {
-    sudo /usr/sbin/exportfs -o rw,no_root_squash,async,no_subtree_check *:$OUT_ROOTFS_PATH
+    if [ -f /usr/local/sbin/sudo-exportfs ];
+    then
+        sudo-exportfs -o rw,no_root_squash,async,no_subtree_check *:$OUT_ROOTFS_PATH
+    else
+        sudo /usr/sbin/exportfs -o rw,no_root_squash,async,no_subtree_check *:$OUT_ROOTFS_PATH
+    fi
     if `ifconfig eth0 2> /dev/null` ;
     then
         ETH0_IPADDR=$(ifconfig eth0 | awk '/inet addr/{print substr($2,6)}')
@@ -298,13 +255,13 @@ export_nfs_root() {
 }
 
 #----------------------------------------------
-# Choice rootfs
+# Create u-boot script
 # --
 #
 create_script() {
     SCRIPT_NAME=$TFTP_PATH/boot_network_$BOARD_NAME.txt
     SCRIPT_BOOT=$TFTP_PATH/boot_network_$BOARD_NAME.scr
-    CMDLINE=$(cat $DEPLOY_DIR/$MACHINE/cmdline/cmdline_nfs.txt)
+    CMDLINE=$(cat ${DEPLOY_DIR}/images/$MACHINE/cmdline/cmdline_nfs.txt)
 
     #patch for b2260
     if [ "$TARGET_BOARD" == "stih410-b2260" ];
@@ -322,7 +279,7 @@ create_script() {
     echo "setenv bootcmd \"tftp 0x60000000 uImage; tftp 0x47000000 $TARGET_BOARD.dtb; run bootrom_data; bootm 0x60000000 - 0x47000000\" " >> $SCRIPT_NAME
     echo "boot"  >> $SCRIPT_NAME
 
-    mkimage -A arm -T script -C none -n "Open SDK Boot Script" -d $SCRIPT_NAME $SCRIPT_BOOT
+    ${STAGING_BINDIR_NATIVE}/mkimage -A arm -T script -C none -n "ST cannes2 Boot Script" -d $SCRIPT_NAME $SCRIPT_BOOT
 }
 
 ######################################################
@@ -331,19 +288,12 @@ create_script() {
 #
 
 verify_env
-if [ $? -eq 1 ];
-then
-    exit 1
-fi
+[[ $? -eq 1 ]] && exit 1
 
 verify_tftp
-if [ $? -eq 1 ];
-then
-    exit 1
-fi
+[[ $? -eq 1 ]] && exit 1
 
 # Options parsing
-#
 while test $# != 0
 do
     case "$1" in
@@ -357,46 +307,41 @@ do
     esac
 done
 
-
 # Get DEPLOY_DIR path from OpenEmbedded BUILDDIR var
-[[ -z ${BUILDDIR} ]] || DEPLOY_DIR=`find ${BUILDDIR}/* -maxdepth 2 -type d -wholename '*/deploy/images'`
+DEPLOY_DIR=$(find ${BUILDDIR}/* -maxdepth 1 -type d -wholename '*/deploy')
+# Init BUILD_TMP_DIR path from DEPLOY_DIR
+BUILD_TMP_DIR=$(dirname ${DEPLOY_DIR})
+# Init STAGING_BINDIR_NATIVE path from BUILD_TMP_DIR
+STAGING_BINDIR_NATIVE=$(find ${BUILD_TMP_DIR}/sysroots/ -maxdepth 3 -type d -wholename "${BUILD_TMP_DIR}/sysroots/$(uname -m)*/usr/bin")
 # Get MACHINE from config files
 MACHINE=$(grep "^[ \t]*MACHINE[ \t]*=" ${BUILDDIR}/conf/*.conf | head -n 1 | sed 's/^.*"\(.*\)"/\1/')
 
-#choice Kernel
-choice_kernel
-if [ $? -eq 1 ];
-then
-    exit 1
-fi
+echo ""
+echo "[rootfs choice]"
+choice_rootfs
+[[ $? -eq 1 ]] && exit 1
 
-#choice the target
+echo ""
+echo "[kernel choice]"
+choice_kernel
+[[ $? -eq 1 ]] && exit 1
+
+echo ""
 echo "[board choice]"
 choice_board
-ret_choice=$?
-if [ $ret_choice -eq 1 ];
-then
-    exit 1
-fi
-
-
-#choice rootfs
-choice_rootfs
-if [ $? -eq 1 ];
-then
-    exit 1
-fi
+[[ $? -eq 1 ]] && exit 1
 
 #copy file to tftp boot
 
 #copy kernel
-cp -f $OUT_KERNEL/arch/arm/boot/uImage $TFTP_PATH/
-
+cp -f $OUT_KERNEL/uImage $TFTP_PATH/
 #copy devicetree
-cp -f $OUT_KERNEL/arch/arm/boot/$TARGET_BOARD.dtb $TFTP_PATH/
+cp -f $OUT_KERNEL/$TARGET_BOARD.dtb $TFTP_PATH/
 
 export_nfs_root
 
+echo ""
+echo "[create script]"
 create_script
 
 echo ""
