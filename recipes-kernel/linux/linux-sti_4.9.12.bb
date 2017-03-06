@@ -32,6 +32,13 @@ COMPATIBLE_MACHINE = "stih410-b2260"
 KERNEL_DEFCONFIG         = "multi_v7_defconfig"
 KERNEL_CONFIG_FRAGMENTS  = "${THISDIR}/${PN}/${PV}/systemd.config"
 
+#--------------------------------------
+# Optee
+SRC_URI_append_stih410-b2260 = " \
+    ${@bb.utils.contains('MACHINE_FEATURES', 'optee', 'file://0008-4.9.12-Optee-v14.patch', '', d)} \
+"
+KERNEL_CONFIG_FRAGMENTS  =+ "${@bb.utils.contains('MACHINE_FEATURES', 'optee', '${THISDIR}/${PN}/${PV}/optee.config', '', d)} "
+
 #---------------------------------------
 # Kernel Args
 #
