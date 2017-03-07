@@ -1,0 +1,57 @@
+# u-bootrom supports u-boot.2015 commands plus few extras.
+#
+# Extra variables:
+#   script_dev_usb    'usb X.Y'  default usb instance:partition to boot from.
+#   script_dev_mmc    'mmc X.Y'  default mmc instance:partition to boot from.
+#   script_dev        $script_dev_usb|mmc depending on media where boot script was found.
+#   script_fsload     'fatload' or 'ext2load' depending on which was used to load boot script.
+#   dram_base         DDR start address
+#   dram_size         DDR size (in bytes)
+#   load_addr         default load address (DDR start)
+#   board             board id ("b2120", "b2260", ...)
+#
+# Extra commands:
+#   hpen              holding pen reconfiguration and kick support, for SMP boot
+#   load_optee        OPTEE specific formated image intallation command
+#   boot_optee        OPTEE specific boot command
+#
+# u-bootrom enables silent console. To get some logs from this script one
+# can disable silent mode ("setenv silent;") and re-enable silent mode
+# ("setenv silent 1") in this script.
+
+# images location
+
+# optee shall be loaded at begining of the last 32MB of the DDR.
+optee_path="$board/optee.bin"
+setexpr.l optee_ram_start $dram_base + $dram_size
+setexpr.l optee_ram_start $optee_ram_start - 0x02000000
+setexpr.l optee_ram_size 0x01F00000
+
+# u-boot shall be loaded 10MB before the begining of the last 32MB of the DDR.
+setexpr.l uboot_addr $optee_ram_start - 0x00A00000
+uboot_path="$board/u-boot.bin"
+
+# load images
+
+$script_fsload $script_dev $uboot_addr $uboot_path
+if test "$?" != "0"; then setenv silent; echo "[bootscript] failed to load $uboot_path"; reset; fi
+
+$script_fsload $script_dev $optee_ram_start $optee_path
+if test "$?" != "0"; then setenv silent; echo "[bootscript] failed to load $optee_path"; reset; fi
+
+load_optee $optee_ram_start
+if test "$?" != "0"; then setenv silent; echo "[bootscript] failed to load_optee"; reset; fi
+
+# boot images
+
+dcache flush;
+
+hpen prepare 0x094100A4 && hpen kick $optee_entry
+if test "$?" != "0"; then setenv silent; echo "[bootscript] failed to hpen"; reset; fi
+
+setenv optee_ns_entry $uboot_addr
+setenv silent;
+echo "[bootscript] optee: $optee_entry $optee_arg0-$optee_arg1-$optee_arg2-$optee_arg3 $optee_ns_entry"
+setenv silent 1
+
+boot_optee
