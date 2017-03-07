@@ -1,0 +1,95 @@
+commit f721fae64ee65488e4de40da4ae26d12cdbd2b16
+Author: Etienne Carriere <etienne.carriere@linaro.org>
+Date:   Tue Oct 11 10:08:51 2016 +0200
+
+    plat-stm/plat-imx: fix SCR initialization
+    
+    Secure Configuration Register shall be initialized for all cores.
+    
+    Signed-off-by: Etienne Carriere <etienne.carriere@linaro.org>
+    Reviewed-by: Jens Wiklander <jens.wiklander@linaro.org>
+
+diff --git a/core/arch/arm/plat-imx/a9_plat_init.S b/core/arch/arm/plat-imx/a9_plat_init.S
+index 16c955d6..9cf48b3 100644
+--- a/core/arch/arm/plat-imx/a9_plat_init.S
++++ b/core/arch/arm/plat-imx/a9_plat_init.S
+@@ -264,6 +264,17 @@ END_FUNC plat_cpu_reset_early
+ FUNC plat_cpu_reset_late , :
+ UNWIND(	.fnstart)
+ 
++	/*
++	 * Disallow NSec to mask FIQ [bit4: FW=0]
++	 * Allow NSec to manage Imprecise Abort [bit5: AW=1]
++	 * Imprecise Abort trapped to Abort Mode [bit3: EA=0]
++	 * In Sec world, FIQ trapped to FIQ Mode [bit2: FIQ=0]
++	 * IRQ always trapped to IRQ Mode [bit1: IRQ=0]
++	 * Secure World [bit0: NS=0]
++	 */
++	mov r0, #SCR_AW
++	write_scr r0		/* write Secure Configuration Register */
++
+ 	read_mpidr r0
+ 	ands r0, #3
+ 	beq _boot_late_primary_cpu
+@@ -319,17 +330,6 @@ _boot_late_primary_cpu:
+ 	orr  r1, r1, r2
+ 	str  r1, [r0, #SCU_CTRL]
+ 
+-	/*
+-	 * Disallow NSec to mask FIQ [bit4: FW=0]
+-	 * Allow NSec to manage Imprecise Abort [bit5: AW=1]
+-	 * Imprecise Abort trapped to Abort Mode [bit3: EA=0]
+-	 * In Sec world, FIQ trapped to FIQ Mode [bit2: FIQ=0]
+-	 * IRQ always trapped to IRQ Mode [bit1: IRQ=0]
+-	 * Secure World [bit0: NS=0]
+-	 */
+-	mov r0, #SCR_AW
+-	write_scr r0		/* write Secure Configuration Register */
+-
+ #if defined(PLATFORM_FLAVOR_mx6qsabrelite) || \
+ 	defined(PLATFORM_FLAVOR_mx6qsabresd)
+ 
+diff --git a/core/arch/arm/plat-stm/tz_a9init.S b/core/arch/arm/plat-stm/tz_a9init.S
+index 486acbc..4fe245e 100644
+--- a/core/arch/arm/plat-stm/tz_a9init.S
++++ b/core/arch/arm/plat-stm/tz_a9init.S
+@@ -31,11 +31,12 @@
+  * It is assume each routine is called with return address in LR
+  * and with ARM registers R0, R1, R2, R3 being scratchable.
+  */
+-#include <kernel/tz_ssvce_def.h>
++#include <arm32.h>
+ #include <arm32_macros.S>
+ #include <asm.S>
+-#include <platform_config.h>
++#include <kernel/tz_ssvce_def.h>
+ #include <kernel/unwind.h>
++#include <platform_config.h>
+ 
+ #define CPUID_A9_R3P0_H 0x413f
+ #define CPUID_A9_R3P0_L 0xc090
+@@ -269,6 +270,12 @@ END_FUNC plat_cpu_reset_early
+ FUNC plat_cpu_reset_late , :
+ UNWIND(	.fnstart)
+ 
++	/* Allow NSec to manage FIQ/Imprecise abort (SCR[FW]=1, SCR[AW]=1) */
++	read_scr r0
++	orr r0, r0, #SCR_AW
++	orr r0, r0, #SCR_FW
++	write_scr r0
++
+ 	mrc p15, 0, r0, c0, c0, 5
+ 	ands r0, #3
+ 	beq _boot_late_primary_cpu
+@@ -368,11 +375,6 @@ loop_1:
+ 	movt r1, #(CPU_PORT_FILT_START >> 16)
+ 	str  r1, [r0, #PL310_ADDR_FILT_START]
+ 
+-	/* Allow NSec to manage FIQ/Imprecise abort */
+-	mrc p15, 0, r0, c1, c1, 0    /* read Secure Configuration Register */
+-	orr r0, r0, #0x30            /* SCR[FW]=1, SCR[AW]=1 */
+-	mcr p15, 0, r0, c1, c1, 0    /* write updated value in Secure Configuration Register */
+-
+ 	mov pc, lr
+ UNWIND(	.fnend)
+ END_FUNC plat_cpu_reset_late

@@ -1,0 +1,60 @@
+commit c1256e4238bd464ed4be3652daeb68b44796a1ce
+Author: Etienne Carriere <etienne.carriere@linaro.org>
+Date:   Tue Oct 11 10:12:06 2016 +0200
+
+    core: fix spinlock for ARMv7-A and AArch32
+    
+    Failure to acquire exclusivity when storing locked value on a
+    spinlock should not yield to wait for an event, just attempting
+    'strex' execution again.
+    
+    Tested-by: Etienne Carriere <etienne.carriere@linaro.org> (b2260/qemu)
+    Signed-off-by: Etienne Carriere <etienne.carriere@linaro.org>
+    Reviewed-by: Joakim Bech <joakim.bech@linaro.org>
+    Reviewed-by: Jens Wiklander <jens.wiklander@linaro.org>
+
+diff --git a/core/arch/arm/kernel/proc_a32.S b/core/arch/arm/kernel/proc_a32.S
+index d5ec205..ae36401 100644
+--- a/core/arch/arm/kernel/proc_a32.S
++++ b/core/arch/arm/kernel/proc_a32.S
+@@ -1,4 +1,5 @@
+ /*
++ * Copyright (c) 2016, ARM Limited and Contributors. All rights reserved.
+  * Copyright (c) 2014, STMicroelectronics International N.V.
+  * All rights reserved.
+  *
+@@ -12,6 +13,10 @@
+  * this list of conditions and the following disclaimer in the documentation
+  * and/or other materials provided with the distribution.
+  *
++ * Neither the name of ARM nor the names of its contributors may be used
++ * to endorse or promote products derived from this software without specific
++ * prior written permission.
++ *
+  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+  * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+@@ -25,10 +30,6 @@
+  * POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
+-/*
+- * ARMv7 core support routines
+- */
+-
+ #include <kernel/tz_proc.h>
+ #include <kernel/tz_proc_def.h>
+ #include <kernel/unwind.h>
+@@ -46,10 +47,8 @@ _spinlock_loop:
+ 	ldrex r1, [r0]
+ 	cmp r1, #SPINLOCK_UNLOCK
+ 	wfene
+-	bne _spinlock_loop
+-	strex r1, r2, [r0]
+-	cmp r1, #0
+-	wfene
++	strexeq r1, r2, [r0]
++	cmpeq r1, #0
+ 	bne _spinlock_loop
+ 	dmb
+ 	bx lr
