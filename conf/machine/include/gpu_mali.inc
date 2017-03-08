@@ -23,7 +23,11 @@ def get_gpu_mali_handler(d):
         if 'wayland' in distro_features:
             provider = gpu_lib_wayland[0]
         else:
-            provider = "mesa"
+            if 'x11' in distro_features:
+                provider = "mesa"
+            else:
+                '''no wayland, no X11 -> choose DRM for eglfs'''
+                provider = gpu_lib_wayland[0]
     else:
         provider = "mesa"
 
@@ -34,4 +38,5 @@ GPU_USERLAND_LIBRARIES_INSTALL = "${@get_gpu_mali_handler(d)}"
 PREFERRED_PROVIDER_virtual/egl_stih410-b2260 = "${@get_gpu_mali_handler(d)}"
 PREFERRED_PROVIDER_virtual/libgles1_stih410-b2260 = "${@get_gpu_mali_handler(d)}"
 PREFERRED_PROVIDER_virtual/libgles2_stih410-b2260 = "${@get_gpu_mali_handler(d)}"
-PREFERRED_PROVIDER_virtual/mesa_stih410-b2260 = "${@get_gpu_mali_handler(d)}"
+PREFERRED_PROVIDER_virtual/mesa_stih410-b2260 = "${@bb.utils.contains('PREFERRED_PROVIDER_virtual/egl','${GPU_USERLAND_LIBRARIES_WAYLAND}','mesa-gl','mesa',d)}"
+PREFERRED_PROVIDER_virtual/libgl = "${@bb.utils.contains('PREFERRED_PROVIDER_virtual/egl','${GPU_USERLAND_LIBRARIES_WAYLAND}','mesa-gl','mesa',d)}"
