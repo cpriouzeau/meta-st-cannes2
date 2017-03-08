@@ -12,27 +12,47 @@ BACKEND="multi"
 PV_MALI ="r6p1"
 PR_MALI ="01rel0"
 
-MALI_USERLAND_FB_TARBALL_DATE= "20161122"
-
 COMPATIBLE_MACHINE = "stih410-b2260"
 PACKAGE_ARCH = "${MACHINE_ARCH}"
 
-PROVIDES += "mali400-userland virtual/libgles1 virtual/libgles2 virtual/egl virtual/libvg virtual/gbm virtual/mesa"
+#PROVIDES += "mali400-userland virtual/libgles1 virtual/libgles2 virtual/egl virtual/libvg virtual/gbm virtual/mesa"
+PROVIDES += "mali400-userland virtual/libgles1 virtual/libgles2 virtual/egl virtual/libvg virtual/gbm"
 
 PV="${PV_MALI}"
 PR="${PR_MALI}-binary${SRCPV}"
 
-MALI_DV="${PV_MALI}-${PR_MALI}-${MALI_USERLAND_FB_TARBALL_DATE}"
-
-TAR_FILENAME="mali400-userland-multi-DRM-WAYLAND-STiH410-B2260-${MALI_DV}"
-TAR_PATH_NAME="mali400-userland-multi-${PV_MALI}-${PR_MALI}-${MALI_USERLAND_FB_TARBALL_DATE}"
-MALI_TARBALL_NAME="${TAR_FILENAME}.tar.xz"
-
-SRCBRANCH = "mali400_${MALI_DV}"
 SRC_URI= "git://github.com/STMicroelectronics/Mali-400-ST-build-for-B2260.git;protocole=https;branch=master"
-SRCREV = "ba6e7bf2129d111b730f24b9b294910dcf946b11"
+SRCREV = "e7dfb82a6b8256ce76f6b880c84ad7285c9d701c"
 
 S = "${WORKDIR}/git"
+
+# -----------------------------------
+TAR_FILENAME_WAYLAND="mali400-userland-multi-DRM-WAYLAND-STiH410-B2260-${PV_MALI}-${PR_MALI}-20161122"
+TAR_PATH_NAME_WAYLAND="mali400-userland-multi-${PV_MALI}-${PR_MALI}-20161122"
+
+TAR_FILENAME_FBDEV="mali400-userland-multi-DRM-FBDEV-STiH410-B2260-${PV_MALI}-${PR_MALI}-20170307"
+TAR_PATH_NAME_FBDEV="mali400-userland-multi-${PV_MALI}-${PR_MALI}-20170307"
+
+def get_gpu_mali_config_handler_for_tar_filename(d):
+    distro_features = d.getVar('DISTRO_FEATURES', True).split()
+
+    if 'wayland' in distro_features:
+        return d.getVar('TAR_FILENAME_WAYLAND', True)
+    else:
+        return d.getVar('TAR_FILENAME_FBDEV', True)
+
+def get_gpu_mali_config_handler_for_tar_path(d):
+    distro_features = d.getVar('DISTRO_FEATURES', True).split()
+
+    if 'wayland' in distro_features:
+        return d.getVar('TAR_PATH_NAME_WAYLAND', True)
+    else:
+        return d.getVar('TAR_PATH_NAME_FBDEV', True)
+
+TAR_FILENAME = "${@get_gpu_mali_config_handler_for_tar_filename(d)}"
+TAR_PATH_NAME = "${@get_gpu_mali_config_handler_for_tar_path(d)}"
+
+MALI_TARBALL_NAME="${TAR_FILENAME}.tar.xz"
 
 #------------------------------------------
 # Override do_unpack to manage EULA
@@ -57,7 +77,6 @@ python do_unpack() {
 }
 
 #------------------------------------------
-# Do patch
 # Overwrite of do_patch to untar the tarball
 do_patch() {
     cd ${S}
@@ -66,14 +85,13 @@ do_patch() {
 
 
 #------------------------------------------
-# Do install
 #
 do_install() {
     install -m 755 -d ${D}/usr/
     cp -R ${S}/${TAR_PATH_NAME}/usr ${D}/
 }
 
-# Cannot split or strip last added firmwares
+# Cannot split or strip last added libraries
 INHIBIT_PACKAGE_DEBUG_SPLIT = "1"
 INHIBIT_PACKAGE_STRIP = "1"
 
