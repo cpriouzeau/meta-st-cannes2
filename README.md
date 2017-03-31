@@ -1,6 +1,6 @@
-# Meta-st-canne2
+# Meta-st-cannes2
 
-**Meta-st-canne2** is a layer containing the ST bsp metadata.
+**Meta-st-cannes2** is a layer containing the ST bsp metadata.
 
 This layer relies on OpenEmbedded build system that is provided through
 Bitbake and OpenEmbedded-Core layers or Poky layer; all part of the Yocto Project.
@@ -29,7 +29,7 @@ Layer depends:
     URI: git://git.openembedded.org/bitbake
     branch: 1.30
 
-Machine to be used with Meta-st-canne2 layer:
+Machine to be used with Meta-st-cannes2 layer:
     stih410-b2260
 
 ***
