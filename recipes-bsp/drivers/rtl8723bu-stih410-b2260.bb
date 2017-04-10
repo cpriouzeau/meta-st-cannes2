@@ -4,7 +4,7 @@ LICENSE = "GPLv2"
 LIC_FILES_CHKSUM = "file://Kconfig;md5=ce4c7adf40ddcf6cfca7ee2b333165f0"
 
 SRC_URI = "git://github.com/lwfinger/rtl8723bu.git;protocol=https"
-SRCREV = "4c9b566c6c0fb2dfc32f00ddd6ec03e8dd361650"
+SRCREV = "692edf2a9284a14671c0d03927d75856967d5c84"
 
 S = "${WORKDIR}/git"
 
