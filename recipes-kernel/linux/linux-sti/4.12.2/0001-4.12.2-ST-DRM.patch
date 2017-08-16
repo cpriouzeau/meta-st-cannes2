@@ -1,0 +1,613 @@
+From 33a1f763b8870929a926271cb46bfb9655e73a30 Mon Sep 17 00:00:00 2001
+From: Christophe Priouzeau <christophe.priouzeau@st.com>
+Date: Tue, 18 Jul 2017 09:40:06 +0200
+Subject: [PATCH 1/5] 4.12.2 ST: DRM
+
+---
+ drivers/gpu/drm/drm_crtc.c              |  24 ++++
+ drivers/gpu/drm/drm_fb_helper.c         |  34 ++++--
+ drivers/gpu/drm/drm_framebuffer.c       |   3 +-
+ drivers/gpu/drm/panel/Kconfig           |   5 +
+ drivers/gpu/drm/panel/Makefile          |   1 +
+ drivers/gpu/drm/panel/panel-hsd101pww.c | 154 +++++++++++++++++++++++++
+ drivers/gpu/drm/sti/sti_drv.c           |  10 ++
+ drivers/gpu/drm/sti/sti_drv.h           |   3 +
+ drivers/gpu/drm/sti/sti_plane.c         | 198 ++++++++++++++++++++++++++++++++
+ drivers/gpu/drm/sti/sti_plane.h         |  10 ++
+ include/drm/drm_crtc.h                  |   2 +
+ include/uapi/drm/drm_mode.h             |   1 +
+ 12 files changed, 437 insertions(+), 8 deletions(-)
+ create mode 100644 drivers/gpu/drm/panel/panel-hsd101pww.c
+
+diff --git a/drivers/gpu/drm/drm_crtc.c b/drivers/gpu/drm/drm_crtc.c
+index 5af25ce..94d4b8e 100644
+--- a/drivers/gpu/drm/drm_crtc.c
++++ b/drivers/gpu/drm/drm_crtc.c
+@@ -142,6 +142,30 @@ int drm_crtc_force_disable_all(struct drm_device *dev)
+ }
+ EXPORT_SYMBOL(drm_crtc_force_disable_all);
+ 
++/**
++ * drm_cursor_release - disable existing cursor planes
++ * @dev: drm device
++ *
++ * Scans all the planes in @dev's mode_config.  If they're
++ * enabled cursor planes, removes it.
++ */
++void drm_cursor_release(struct drm_device *dev)
++{
++	struct drm_plane *plane;
++
++	drm_modeset_lock_all(dev);
++
++	list_for_each_entry(plane, &dev->mode_config.plane_list, head) {
++		if ((plane->crtc) && (plane->type == DRM_PLANE_TYPE_CURSOR))
++			drm_plane_force_disable(plane);
++	}
++
++	drm_modeset_unlock_all(dev);
++}
++EXPORT_SYMBOL(drm_cursor_release);
++
++DEFINE_WW_CLASS(crtc_ww_class);
++
+ static unsigned int drm_num_crtcs(struct drm_device *dev)
+ {
+ 	unsigned int num = 0;
+diff --git a/drivers/gpu/drm/drm_fb_helper.c b/drivers/gpu/drm/drm_fb_helper.c
+index 1f178b8..1464c5a 100644
+--- a/drivers/gpu/drm/drm_fb_helper.c
++++ b/drivers/gpu/drm/drm_fb_helper.c
+@@ -1678,19 +1678,39 @@ static int drm_fb_helper_single_fb_probe(struct drm_fb_helper *fb_helper,
+ 	}
+ 
+ 	if (crtc_count == 0 || sizes.fb_width == -1 || sizes.fb_height == -1) {
+-		/*
+-		 * hmm everyone went away - assume VGA cable just fell out
+-		 * and will come back later.
++		struct drm_display_mode *mode = NULL;
++		/* hmm everyone went away - assume cable just fell out and will
++		 * come back later.
++		 * Get fb size from command line mode (if existing) else fb size
++		 * is set to 1024x768
+ 		 */
+-		DRM_INFO("Cannot find any crtc or sizes - going 1024x768\n");
+-		sizes.fb_width = sizes.surface_width = 1024;
+-		sizes.fb_height = sizes.surface_height = 768;
++		for (i = 0; i < fb_helper->connector_count; i++) {
++			struct drm_fb_helper_connector *fb_helper_conn;
++
++			fb_helper_conn = fb_helper->connector_info[i];
++			mode = drm_pick_cmdline_mode(fb_helper_conn);
++			if (mode)
++				break;
++		}
++
++		if (mode) {
++			sizes.fb_width = mode->hdisplay;
++			sizes.fb_height = mode->vdisplay;
++			DRM_INFO("Cannot find any crtc or sizes - use cmdline %dx%d\n",
++				 sizes.fb_width, sizes.fb_height);
++		} else {
++			sizes.fb_width = 1024;
++			sizes.fb_height = 768;
++			DRM_INFO("Cannot find any crtc or sizes - going 1024x768\n");
++		}
++
++		sizes.surface_width = sizes.fb_width;
++		sizes.surface_height = sizes.fb_height;
+ 	}
+ 
+ 	/* Handle our overallocation */
+ 	sizes.surface_height *= drm_fbdev_overalloc;
+ 	sizes.surface_height /= 100;
+-
+ 	/* push down into drivers */
+ 	ret = (*fb_helper->funcs->fb_probe)(fb_helper, &sizes);
+ 	if (ret < 0)
+diff --git a/drivers/gpu/drm/drm_framebuffer.c b/drivers/gpu/drm/drm_framebuffer.c
+index fc8ef42..39ca526 100644
+--- a/drivers/gpu/drm/drm_framebuffer.c
++++ b/drivers/gpu/drm/drm_framebuffer.c
+@@ -265,7 +265,8 @@ drm_internal_framebuffer_create(struct drm_device *dev,
+ 	struct drm_framebuffer *fb;
+ 	int ret;
+ 
+-	if (r->flags & ~(DRM_MODE_FB_INTERLACED | DRM_MODE_FB_MODIFIERS)) {
++	if (r->flags & ~(DRM_MODE_FB_INTERLACED | DRM_MODE_FB_MODIFIERS
++			| DRM_MODE_FB_BFF)) {
+ 		DRM_DEBUG_KMS("bad framebuffer flags 0x%08x\n", r->flags);
+ 		return ERR_PTR(-EINVAL);
+ 	}
+diff --git a/drivers/gpu/drm/panel/Kconfig b/drivers/gpu/drm/panel/Kconfig
+index 3e29a99..ee3bde2 100644
+--- a/drivers/gpu/drm/panel/Kconfig
++++ b/drivers/gpu/drm/panel/Kconfig
+@@ -104,4 +104,9 @@ config DRM_PANEL_SITRONIX_ST7789V
+ 	  Say Y here if you want to enable support for the Sitronix
+ 	  ST7789V controller for 240x320 LCD panels
+ 
++config DRM_PANEL_HSD101PWW
++	tristate "HSD101PWW LVDS panel"
++	depends on OF
++	select VIDEOMODE_HELPERS
++
+ endmenu
+diff --git a/drivers/gpu/drm/panel/Makefile b/drivers/gpu/drm/panel/Makefile
+index 292b3c7..334ff1a 100644
+--- a/drivers/gpu/drm/panel/Makefile
++++ b/drivers/gpu/drm/panel/Makefile
+@@ -9,3 +9,4 @@ obj-$(CONFIG_DRM_PANEL_SAMSUNG_S6E8AA0) += panel-samsung-s6e8aa0.o
+ obj-$(CONFIG_DRM_PANEL_SHARP_LQ101R1SX01) += panel-sharp-lq101r1sx01.o
+ obj-$(CONFIG_DRM_PANEL_SHARP_LS043T1LE01) += panel-sharp-ls043t1le01.o
+ obj-$(CONFIG_DRM_PANEL_SITRONIX_ST7789V) += panel-sitronix-st7789v.o
++obj-$(CONFIG_DRM_PANEL_HSD101PWW) += panel-hsd101pww.o
+diff --git a/drivers/gpu/drm/panel/panel-hsd101pww.c b/drivers/gpu/drm/panel/panel-hsd101pww.c
+new file mode 100644
+index 0000000..61a622f
+--- /dev/null
++++ b/drivers/gpu/drm/panel/panel-hsd101pww.c
+@@ -0,0 +1,154 @@
++/*
++ * hsd101pww LED LCD drm_panel driver.
++ *
++ * Copyright (c) 2014 STMicroelectronics SA
++ *
++ * Vincent Abriou <vincent.abriou@st.com>
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License version 2 as
++ * published by the Free Software Foundation.
++*/
++
++#include <linux/of_gpio.h>
++
++#include <drm/drmP.h>
++#include <drm/drm_panel.h>
++
++#include <video/of_videomode.h>
++#include <video/videomode.h>
++
++struct hsd101pww {
++	struct drm_panel panel;
++	int enable_gpio;
++	struct videomode vm;
++	u32 width_mm;
++	u32 height_mm;
++};
++
++#define panel_to_hsd101pww(p) container_of(p, struct hsd101pww, panel)
++
++static int hsd101pww_enable(struct drm_panel *panel)
++{
++	struct hsd101pww *ctx = panel_to_hsd101pww(panel);
++
++	gpio_set_value_cansleep(ctx->enable_gpio, 1);
++
++	return 0;
++}
++
++static int hsd101pww_disable(struct drm_panel *panel)
++{
++	struct hsd101pww *ctx = panel_to_hsd101pww(panel);
++
++	gpio_set_value_cansleep(ctx->enable_gpio, 0);
++
++	return 0;
++}
++
++static int hsd101pww_get_modes(struct drm_panel *panel)
++{
++	struct drm_connector *connector = panel->connector;
++	struct hsd101pww *ctx = panel_to_hsd101pww(panel);
++	struct drm_display_mode *mode;
++
++	mode = drm_mode_create(connector->dev);
++	if (!mode) {
++		DRM_ERROR("failed to create a new display mode\n");
++		return 0;
++	}
++
++	drm_display_mode_from_videomode(&ctx->vm, mode);
++	mode->width_mm = ctx->width_mm;
++	mode->height_mm = ctx->height_mm;
++	connector->display_info.width_mm = mode->width_mm;
++	connector->display_info.height_mm = mode->height_mm;
++
++	mode->type = DRM_MODE_TYPE_DRIVER | DRM_MODE_TYPE_PREFERRED;
++	drm_mode_probed_add(connector, mode);
++
++	return 1;
++}
++
++static const struct drm_panel_funcs hsd101pww_drm_funcs = {
++	.disable = hsd101pww_disable,
++	.enable = hsd101pww_enable,
++	.get_modes = hsd101pww_get_modes,
++};
++
++static int hsd101pww_probe(struct platform_device *pdev)
++{
++	struct device *dev = &pdev->dev;
++	struct hsd101pww *ctx;
++	struct device_node *np = dev->of_node;
++	int ret;
++
++	ctx = devm_kzalloc(dev, sizeof(struct hsd101pww), GFP_KERNEL);
++	if (!ctx)
++		return -ENOMEM;
++
++	ret = of_get_videomode(np, &ctx->vm, 0);
++	if (ret < 0)
++		return ret;
++
++	of_property_read_u32(np, "panel-width-mm", &ctx->width_mm);
++	of_property_read_u32(np, "panel-height-mm", &ctx->height_mm);
++
++	ctx->enable_gpio = of_get_named_gpio(np, "enable-gpio", 0);
++	if (ctx->enable_gpio < 0) {
++		dev_err(dev, "failed to get led-gpio\n");
++		return -EIO;
++	}
++	ret = gpio_is_valid(ctx->enable_gpio);
++	if (!ret) {
++		dev_err(dev, "led-gpio is not valid (gpio=%d)\n",
++			ctx->enable_gpio);
++		return -EIO;
++	}
++	ret = devm_gpio_request(dev, ctx->enable_gpio, pdev->name);
++	if (ret) {
++		dev_err(dev, "failed to request led-gpio\n");
++		return -EIO;
++	}
++	/* set gpio as output and disable it */
++	gpio_direction_output(ctx->enable_gpio, 0);
++
++	drm_panel_init(&ctx->panel);
++	ctx->panel.dev = dev;
++	ctx->panel.funcs = &hsd101pww_drm_funcs;
++
++	return drm_panel_add(&ctx->panel);
++}
++
++static int hsd101pww_remove(struct platform_device *pdev)
++{
++	struct hsd101pww *ctx = dev_get_drvdata(&pdev->dev);
++
++	hsd101pww_disable(&ctx->panel);
++
++	drm_panel_remove(&ctx->panel);
++
++	return 0;
++}
++
++const struct of_device_id hsd101pww_of_match[] = {
++	{ .compatible = "hannstar,hsd101pww" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, hsd101pww_of_match);
++
++static struct platform_driver hsd101pww_driver = {
++	.driver = {
++		.name	= "hsd101pww",
++		.owner	= THIS_MODULE,
++		.of_match_table = hsd101pww_of_match,
++	},
++	.probe		= hsd101pww_probe,
++	.remove		= hsd101pww_remove,
++};
++
++module_platform_driver(hsd101pww_driver);
++
++MODULE_AUTHOR("Vincent Abriou <vincent.abriou@st.com>");
++MODULE_DESCRIPTION("hsd101pww LCD Driver");
++MODULE_LICENSE("GPL v2");
+diff --git a/drivers/gpu/drm/sti/sti_drv.c b/drivers/gpu/drm/sti/sti_drv.c
+index a4b5742..c0995c7 100644
+--- a/drivers/gpu/drm/sti/sti_drv.c
++++ b/drivers/gpu/drm/sti/sti_drv.c
+@@ -137,6 +137,15 @@ static int sti_atomic_check(struct drm_device *dev,
+ 	return ret;
+ }
+ 
++static int sti_drm_open(struct drm_device *ddev, struct drm_file *filp)
++{
++	struct sti_private *private = ddev->dev_private;
++
++	private->filp = filp;
++
++	return 0;
++}
++
+ static void sti_output_poll_changed(struct drm_device *ddev)
+ {
+ 	struct sti_private *private = ddev->dev_private;
+@@ -172,6 +181,7 @@ DEFINE_DRM_GEM_CMA_FOPS(sti_driver_fops);
+ static struct drm_driver sti_driver = {
+ 	.driver_features = DRIVER_MODESET |
+ 	    DRIVER_GEM | DRIVER_PRIME | DRIVER_ATOMIC,
++	.open = sti_drm_open,
+ 	.gem_free_object_unlocked = drm_gem_cma_free_object,
+ 	.gem_vm_ops = &drm_gem_cma_vm_ops,
+ 	.dumb_create = drm_gem_cma_dumb_create,
+diff --git a/drivers/gpu/drm/sti/sti_drv.h b/drivers/gpu/drm/sti/sti_drv.h
+index 6502ed2..82e1613 100644
+--- a/drivers/gpu/drm/sti/sti_drv.h
++++ b/drivers/gpu/drm/sti/sti_drv.h
+@@ -19,12 +19,15 @@ struct sti_tvout;
+  * @compo:                 compositor
+  * @plane_zorder_property: z-order property for CRTC planes
+  * @drm_dev:               drm device
++ * @fbdev:                 framebuffer dev cma struct
++ * @drm_file:              drm file private data
+  */
+ struct sti_private {
+ 	struct sti_compositor *compo;
+ 	struct drm_property *plane_zorder_property;
+ 	struct drm_device *drm_dev;
+ 	struct drm_fbdev_cma *fbdev;
++	struct drm_file *filp;
+ };
+ 
+ extern struct platform_driver sti_tvout_driver;
+diff --git a/drivers/gpu/drm/sti/sti_plane.c b/drivers/gpu/drm/sti/sti_plane.c
+index 427d8f5..49bdbfb 100644
+--- a/drivers/gpu/drm/sti/sti_plane.c
++++ b/drivers/gpu/drm/sti/sti_plane.c
+@@ -7,6 +7,7 @@
+  */
+ 
+ #include <drm/drmP.h>
++#include <drm/drm_atomic.h>
+ #include <drm/drm_fb_cma_helper.h>
+ #include <drm/drm_gem_cma_helper.h>
+ 
+@@ -139,3 +140,200 @@ void sti_plane_init_property(struct sti_plane *plane,
+ 	DRM_DEBUG_DRIVER("drm plane:%d mapped to %s\n",
+ 			 plane->drm_plane.base.id, sti_plane_to_str(plane));
+ }
++
++int sti_plane_set_property(struct drm_plane *plane,
++			   struct drm_property *property, uint64_t val)
++{
++	/*
++	 * Forked from drm_atomic_helper_plane_set_property().
++	 * Here we do not wait for vblank if the client is not atomic, so
++	 * DRM_IOCTL_MODE_OBJ_SETPROPERTY returns before vblank.
++	 */
++	struct drm_atomic_state *state;
++	struct drm_plane_state *plane_state;
++	struct sti_private *private = plane->dev->dev_private;
++	int ret = 0;
++
++	state = drm_atomic_state_alloc(plane->dev);
++	if (!state)
++		return -ENOMEM;
++
++	/* ->set_property is always called with all locks held. */
++	state->acquire_ctx = plane->dev->mode_config.acquire_ctx;
++retry:
++	plane_state = drm_atomic_get_plane_state(state, plane);
++	if (IS_ERR(plane_state)) {
++		ret = PTR_ERR(plane_state);
++		goto fail;
++	}
++
++	ret = drm_atomic_plane_set_property(plane, plane_state,
++					    property, val);
++	if (ret)
++		goto fail;
++
++	if (!private->filp->atomic)
++		state->legacy_cursor_update = true;
++
++	ret = drm_atomic_commit(state);
++	if (ret != 0)
++		goto fail;
++
++	/* Driver takes ownership of state on successful commit. */
++	return 0;
++fail:
++	if (ret == -EDEADLK)
++		goto backoff;
++
++	drm_atomic_state_put(state);
++
++	return ret;
++backoff:
++	drm_atomic_state_clear(state);
++	drm_atomic_legacy_backoff(state);
++
++	goto retry;
++}
++
++int sti_plane_update_plane(struct drm_plane *plane, struct drm_crtc *crtc,
++			   struct drm_framebuffer *fb,
++			   int crtc_x, int crtc_y,
++			   unsigned int crtc_w, unsigned int crtc_h,
++			   uint32_t src_x, uint32_t src_y,
++			   uint32_t src_w, uint32_t src_h)
++{
++	/*
++	 * Forked from drm_atomic_helper_update_plane().
++	 * Here we do not wait for vblank if the client is not atomic, so
++	 * DRM_IOCTL_MODE_SETPLANE returns before vblank.
++	 */
++
++	struct drm_atomic_state *state;
++	struct drm_plane_state *plane_state;
++	struct sti_private *private = plane->dev->dev_private;
++	int ret = 0;
++
++	state = drm_atomic_state_alloc(plane->dev);
++	if (!state)
++		return -ENOMEM;
++
++	state->acquire_ctx = crtc->dev->mode_config.acquire_ctx;
++retry:
++	plane_state = drm_atomic_get_plane_state(state, plane);
++	if (IS_ERR(plane_state)) {
++		ret = PTR_ERR(plane_state);
++		goto fail;
++	}
++
++	ret = drm_atomic_set_crtc_for_plane(plane_state, crtc);
++	if (ret != 0)
++		goto fail;
++	drm_atomic_set_fb_for_plane(plane_state, fb);
++	plane_state->crtc_x = crtc_x;
++	plane_state->crtc_y = crtc_y;
++	plane_state->crtc_w = crtc_w;
++	plane_state->crtc_h = crtc_h;
++	plane_state->src_x = src_x;
++	plane_state->src_y = src_y;
++	plane_state->src_w = src_w;
++	plane_state->src_h = src_h;
++
++	if ((plane == crtc->cursor) || !private->filp->atomic)
++		state->legacy_cursor_update = true;
++
++	ret = drm_atomic_commit(state);
++	if (ret != 0)
++		goto fail;
++
++	/* Driver takes ownership of state on successful commit. */
++	return 0;
++fail:
++	if (ret == -EDEADLK)
++		goto backoff;
++
++	drm_atomic_state_put(state);
++
++	return ret;
++backoff:
++	drm_atomic_state_clear(state);
++	drm_atomic_legacy_backoff(state);
++
++	/*
++	 * Someone might have exchanged the framebuffer while we dropped locks
++	 * in the backoff code. We need to fix up the fb refcount tracking the
++	 * core does for us.
++	 */
++	plane->old_fb = plane->fb;
++
++	goto retry;
++}
++
++int sti_plane_disable_plane(struct drm_plane *plane)
++{
++	/*
++	 * Forked from drm_atomic_helper_disable_plane().
++	 * Here we do not wait for vblank if the client is not atomic, so
++	 * DRM_IOCTL_MODE_SETPLANE returns before vblank.
++	 */
++	struct drm_atomic_state *state;
++	struct drm_plane_state *plane_state;
++	struct sti_private *private = plane->dev->dev_private;
++	int ret = 0;
++
++	/*
++	 * FIXME: Without plane->crtc set we can't get at the implicit legacy
++	 * acquire context. The real fix will be to wire the acquire ctx through
++	 * everywhere we need it, but meanwhile prevent chaos by just skipping
++	 * this noop. The critical case is the cursor ioctls which a) only grab
++	 * crtc/cursor-plane locks (so we need the crtc to get at the right
++	 * acquire context) and b) can try to disable the plane multiple times.
++	 */
++	if (!plane->crtc)
++		return 0;
++
++	state = drm_atomic_state_alloc(plane->dev);
++	if (!state)
++		return -ENOMEM;
++
++	state->acquire_ctx = plane->crtc->dev->mode_config.acquire_ctx;
++retry:
++	plane_state = drm_atomic_get_plane_state(state, plane);
++	if (IS_ERR(plane_state)) {
++		ret = PTR_ERR(plane_state);
++		goto fail;
++	}
++
++	if ((plane_state->crtc && (plane == plane->crtc->cursor)) ||
++	    !private->filp->atomic)
++		plane_state->state->legacy_cursor_update = true;
++
++	ret = __drm_atomic_helper_disable_plane(plane, plane_state);
++	if (ret != 0)
++		goto fail;
++
++	ret = drm_atomic_commit(state);
++	if (ret != 0)
++		goto fail;
++
++	/* Driver takes ownership of state on successful commit. */
++	return 0;
++fail:
++	if (ret == -EDEADLK)
++		goto backoff;
++
++	drm_atomic_state_put(state);
++
++	return ret;
++backoff:
++	drm_atomic_state_clear(state);
++	drm_atomic_legacy_backoff(state);
++
++	/*
++	 * Someone might have exchanged the framebuffer while we dropped locks
++	 * in the backoff code. We need to fix up the fb refcount tracking the
++	 * core does for us.
++	 */
++	plane->old_fb = plane->fb;
++
++	goto retry;
++}
+diff --git a/drivers/gpu/drm/sti/sti_plane.h b/drivers/gpu/drm/sti/sti_plane.h
+index c36c13f..59a5380 100644
+--- a/drivers/gpu/drm/sti/sti_plane.h
++++ b/drivers/gpu/drm/sti/sti_plane.h
+@@ -82,5 +82,15 @@ void sti_plane_update_fps(struct sti_plane *plane,
+ 
+ void sti_plane_init_property(struct sti_plane *plane,
+ 			     enum drm_plane_type type);
++int sti_plane_set_property(struct drm_plane *plane,
++			   struct drm_property *property, uint64_t val);
+ void sti_plane_reset(struct drm_plane *plane);
++
++int sti_plane_update_plane(struct drm_plane *plane, struct drm_crtc *crtc,
++			   struct drm_framebuffer *fb,
++			   int crtc_x, int crtc_y,
++			   unsigned int crtc_w, unsigned int crtc_h,
++			   uint32_t src_x, uint32_t src_y,
++			   uint32_t src_w, uint32_t src_h);
++int sti_plane_disable_plane(struct drm_plane *plane);
+ #endif
+diff --git a/include/drm/drm_crtc.h b/include/drm/drm_crtc.h
+index a8176a8..0d28bba 100644
+--- a/include/drm/drm_crtc.h
++++ b/include/drm/drm_crtc.h
+@@ -895,6 +895,8 @@ int drm_crtc_force_disable_all(struct drm_device *dev);
+ int drm_mode_set_config_internal(struct drm_mode_set *set);
+ struct drm_crtc *drm_crtc_from_index(struct drm_device *dev, int idx);
+ 
++extern void drm_cursor_release(struct drm_device *dev);
++
+ /**
+  * drm_crtc_find - look up a CRTC object from its ID
+  * @dev: DRM device
+diff --git a/include/uapi/drm/drm_mode.h b/include/uapi/drm/drm_mode.h
+index 8c67fc0..43ccda5 100644
+--- a/include/uapi/drm/drm_mode.h
++++ b/include/uapi/drm/drm_mode.h
+@@ -392,6 +392,7 @@ struct drm_mode_fb_cmd {
+ 
+ #define DRM_MODE_FB_INTERLACED	(1<<0) /* for interlaced framebuffers */
+ #define DRM_MODE_FB_MODIFIERS	(1<<1) /* enables ->modifer[] */
++#define DRM_MODE_FB_BFF		(1<<2) /* if interlaced, bottom field first */
+ 
+ struct drm_mode_fb_cmd2 {
+ 	__u32 fb_id;
+-- 
+2.7.4
+

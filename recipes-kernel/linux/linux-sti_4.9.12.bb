@@ -30,10 +30,13 @@ COMPATIBLE_MACHINE = "stih410-b2260"
 # Defconfig
 #
 KERNEL_DEFCONFIG         = "multi_v7_defconfig"
-KERNEL_CONFIG_FRAGMENTS  = "${THISDIR}/${PN}/${PV}/systemd.config"
+#KERNEL_CONFIG_FRAGMENTS  = "${THISDIR}/${PN}/${PV}/systemd.config"
+KERNEL_CONFIG_FRAGMENTS  = "${WORKDIR}/systemd.config"
+SRC_URI_append_stih410-b2260 = "file://systemd.config"
 
 #---------------------------------------
 # Kernel Args
 #
 KERNEL_EXTRA_ARGS += "LOADADDR=${ST_KERNEL_LOADADDR} \
         TEXT_OFFSET=0x00008000 "
+
