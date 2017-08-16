@@ -15,7 +15,6 @@ PR_MALI ="01rel0"
 COMPATIBLE_MACHINE = "stih410-b2260"
 PACKAGE_ARCH = "${MACHINE_ARCH}"
 
-#PROVIDES += "mali400-userland virtual/libgles1 virtual/libgles2 virtual/egl virtual/libvg virtual/gbm virtual/mesa"
 PROVIDES += "mali400-userland virtual/libgles1 virtual/libgles2 virtual/egl virtual/libvg virtual/gbm"
 
 PV="${PV_MALI}"
