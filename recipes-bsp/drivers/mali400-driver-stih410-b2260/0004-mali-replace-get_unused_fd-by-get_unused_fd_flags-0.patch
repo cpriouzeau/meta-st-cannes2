@@ -1,7 +1,7 @@
-From 0cf3f92a09b725696a5a40c64ba8509e62764f85 Mon Sep 17 00:00:00 2001
+From b6fed47a67fff21bbbd73998bd7c7d17fea9f5f8 Mon Sep 17 00:00:00 2001
 From: Vincent Abriou <vincent.abriou@st.com>
 Date: Fri, 17 Jun 2016 10:48:07 +0200
-Subject: [PATCH 4/6] mali: replace get_unused_fd() by get_unused_fd_flags(0)
+Subject: [PATCH 4/8] mali: replace get_unused_fd() by get_unused_fd_flags(0)
 
 This patch replaces call to get_unused_fd() with equivalent call to
 get_unused_fd_flags(0) to preserve current behavior for existing code.

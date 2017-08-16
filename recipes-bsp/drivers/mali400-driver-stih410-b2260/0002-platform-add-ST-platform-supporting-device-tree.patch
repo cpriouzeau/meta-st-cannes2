@@ -1,7 +1,7 @@
-From c271e2270fcebc36079400415281fde1937fdaad Mon Sep 17 00:00:00 2001
+From 1b5cc5ada4bc9ea31c82bb66abeceef684420aae Mon Sep 17 00:00:00 2001
 From: Vincent Abriou <vincent.abriou@st.com>
 Date: Fri, 17 Jun 2016 10:39:07 +0200
-Subject: [PATCH 2/6] platform: add ST platform supporting device tree
+Subject: [PATCH 2/8] platform: add ST platform supporting device tree
 
 Add the initial ST Mali configuration for the Mali driver.
 It provide the abilities to:

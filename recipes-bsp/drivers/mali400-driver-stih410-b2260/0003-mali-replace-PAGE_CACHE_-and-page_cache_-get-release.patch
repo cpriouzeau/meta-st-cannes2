@@ -1,7 +1,7 @@
-From dd344ee726aec9f0b08aa5248d2af068d41def95 Mon Sep 17 00:00:00 2001
+From bebbb50748ff58119f42f6d780a93feac0c762a4 Mon Sep 17 00:00:00 2001
 From: Vincent Abriou <vincent.abriou@st.com>
 Date: Fri, 17 Jun 2016 10:47:40 +0200
-Subject: [PATCH 3/6] mali: replace PAGE_CACHE_* and page_cache_{get,release}
+Subject: [PATCH 3/8] mali: replace PAGE_CACHE_* and page_cache_{get,release}
  that have been dropped
 
 Since kernel 4.6-rc3 PAGE_CACHE_SHIFT and page_cache_release have

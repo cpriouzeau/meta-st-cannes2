@@ -26,6 +26,10 @@ SRC_URI = " \
     file://0005-mali-use-dma_xxx_writecombine-instead-of-dma_attrs_w.patch \
     file://0006-mali-fix-mali_gp_job_create-page-domain-fault.patch \
     \
+    file://0007-mali-fix-build-with-linux-kernel-4.10.patch \
+    file://0008-mali-replace-asm-uaccess.h-by-linux-uaccess.h.patch \
+    file://0009-mali-replace-__GFP_REPEAT-by-__GFP_RETRY_MAYFAIL.patch \
+    \
     file://69-mali400-stih410-b2260.rules \
     "
 

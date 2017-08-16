@@ -1,7 +1,7 @@
-From 263a91563d75beb7a806ec99674615b047dd0c57 Mon Sep 17 00:00:00 2001
+From f42f008033406a53bce8715af69237e92504de9c Mon Sep 17 00:00:00 2001
 From: Vincent Abriou <vincent.abriou@st.com>
 Date: Wed, 15 Jun 2016 17:50:55 +0200
-Subject: [PATCH 1/6] Add license
+Subject: [PATCH 1/8] Add license
 
 ---
  LICENSE | 276 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++

@@ -1,7 +1,7 @@
-From e6d453237d697f4665944c2566065595da02d50e Mon Sep 17 00:00:00 2001
+From 50ff7a1b84be28da7423b1d6e9f9f121da261236 Mon Sep 17 00:00:00 2001
 From: Vincent Abriou <vincent.abriou@st.com>
 Date: Wed, 10 Aug 2016 10:19:51 +0200
-Subject: [PATCH 5/6] mali: use dma_xxx_writecombine instead of dma_attrs_wc
+Subject: [PATCH 5/8] mali: use dma_xxx_writecombine instead of dma_attrs_wc
 
 Since kernel 4.8-rc1 DEFINE_DMA_ATTRS is no more exposed.
 We need to use dma_xxx_writecombine instead.
