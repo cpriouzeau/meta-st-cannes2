@@ -24,6 +24,7 @@ IMAGE_DEPENDS_stimg = " \
         u-boot-mkimage-native \
         e2fsprogs-native \
         dosfstools-native \
+        coreutils-native \
         virtual/kernel:do_deploy \
         virtual/bootloader:do_deploy \
         boot-configs-stih410-b2260:do_deploy \
