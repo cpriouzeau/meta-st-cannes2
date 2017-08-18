@@ -1,4 +1,4 @@
-FILESEXTRAPATHS_prepend := "${THISDIR}/${PN}/2.4.74:"
+FILESEXTRAPATHS_prepend := "${THISDIR}/${PN}/2.4.75:"
 
 SRC_URI_append_stih410-b2260 = " \
         file://0001-modetest-consider-supported-formats-before-selecting.patch \
