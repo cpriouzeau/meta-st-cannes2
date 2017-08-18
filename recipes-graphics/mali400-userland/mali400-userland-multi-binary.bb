@@ -5,7 +5,7 @@ DESCRIPTION  = "STMicrolectronics port of the EGL, GLESv1_CM, GLES_v2 waylandegl
 LICENSE = "Proprietary"
 LIC_FILES_CHKSUM = "file://${TAR_PATH_NAME}/LICENSE;md5=b1772c0bd3da4c0a84e514bcaf9d39c6"
 
-DEPENDS += " mali400-driver-stih410-b2260 libdrm wayland "
+DEPENDS += " mali400-driver-stih410-b2260 libdrm wayland xz-native"
 
 BACKEND="multi"
 
@@ -20,7 +20,7 @@ PROVIDES += "mali400-userland virtual/libgles1 virtual/libgles2 virtual/egl virt
 PV="${PV_MALI}"
 PR="${PR_MALI}-binary${SRCPV}"
 
-SRC_URI= "git://github.com/STMicroelectronics/Mali-400-ST-build-for-B2260.git;protocole=https;branch=master"
+SRC_URI= "git://github.com/STMicroelectronics/Mali-400-ST-build-for-B2260.git;protocol=https;branch=master"
 SRCREV = "e7dfb82a6b8256ce76f6b880c84ad7285c9d701c"
 
 S = "${WORKDIR}/git"
