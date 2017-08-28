@@ -5,7 +5,7 @@ DESCRIPTION  = "STMicrolectronics port of the EGL, GLESv1_CM, GLES_v2 waylandegl
 LICENSE = "Proprietary"
 LIC_FILES_CHKSUM = "file://${TAR_PATH_NAME}/LICENSE;md5=b1772c0bd3da4c0a84e514bcaf9d39c6"
 
-DEPENDS += " mali400-driver-stih410-b2260 libdrm wayland xz-native"
+DEPENDS += " mali400-driver-stih410-b2260 libdrm wayland "
 
 BACKEND="multi"
 
@@ -77,6 +77,7 @@ python do_unpack() {
 
 #------------------------------------------
 # Overwrite of do_patch to untar the tarball
+do_patch[depends] += "xz-native:do_populate_sysroot"
 do_patch() {
     cd ${S}
     tar xfJ ${MALI_TARBALL_NAME}
