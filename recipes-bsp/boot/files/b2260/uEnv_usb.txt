@@ -2,6 +2,8 @@
 fdt_high=0xFFFFFFFF
 fdt_file=stih410-b2260.dtb
 fdt_load_addr=0x47000000
+fdt_file2=uImage-stih410-b2260.dtb
+fdt_load_addr2=0x47000000
 kernel_file=uImage
 kernel_load_addr=0x60000000
 
@@ -17,7 +19,8 @@ read_from_device=usb start; if \${part}ls usb ${device_part}; then run load_kern
 
 # Load kernel and fdt, then launch boot action if ok
 load_kernel=if \${part}load usb ${device_part} ${kernel_load_addr} ${kernel_file}; then run load_fdt ; else setenv file ${kernel_file}; run load_error_message; fi
-load_fdt=if \${part}load usb ${device_part} ${fdt_load_addr} ${fdt_file}; then run run_boot; else setenv file ${fdt_file}; run load_error_message; fi
+load_fdt2=if \${part}load usb ${device_part} ${fdt_load_addr2} ${fdt_file2}; then run run_boot; else setenv file ${fdt_file2}; run load_error_message; fi
+load_fdt=if \${part}load usb ${device_part} ${fdt_load_addr} ${fdt_file}; then run run_boot; else run load_fdt2; fi
 
 # Check ethaddr and set it for kernel
 check_ethaddr=if test "x$ethaddr" = "x"; then echo <INFO> Set ethaddr...; readmac; if test "x$ethaddr" = "x"; then askenv ethaddr; fi; fi
