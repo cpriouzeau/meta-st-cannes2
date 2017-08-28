@@ -1,0 +1,26 @@
+From 141e18ea77a75afd6bc3ee95aaa2e99f0d9806d1 Mon Sep 17 00:00:00 2001
+From: Christophe Priouzeau <christophe.priouzeau@st.com>
+Date: Mon, 28 Aug 2017 15:55:43 +0200
+Subject: [PATCH] Increase the size of kernel loadable
+
+Signed-off-by: Christophe Priouzeau <christophe.priouzeau@st.com>
+---
+ include/configs/stxh410_b2260.h | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/include/configs/stxh410_b2260.h b/include/configs/stxh410_b2260.h
+index fe935d4..211ee8d 100644
+--- a/include/configs/stxh410_b2260.h
++++ b/include/configs/stxh410_b2260.h
+@@ -41,6 +41,8 @@
+ 
+ #define CONFIG_STM_FSM_SPI_FLASH
+ 
++#define CONFIG_SYS_BOOTM_LEN        (64 << 20)	/* Increase max gunzip size */
++
+ #define BOARD b2260
+ 
+ #define CONFIG_CMD_I2C
+-- 
+2.7.4
+
