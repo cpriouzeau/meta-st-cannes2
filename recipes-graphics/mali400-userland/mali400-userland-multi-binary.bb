@@ -18,19 +18,19 @@ PACKAGE_ARCH = "${MACHINE_ARCH}"
 PROVIDES += "mali400-userland virtual/libgles1 virtual/libgles2 virtual/egl virtual/libvg virtual/gbm"
 
 PV="${PV_MALI}"
-PR="${PR_MALI}-binary${SRCPV}"
+PR="${PR_MALI}+binary${SRCPV}"
 
 SRC_URI= "git://github.com/STMicroelectronics/Mali-400-ST-build-for-B2260.git;protocol=https;branch=master"
-SRCREV = "e7dfb82a6b8256ce76f6b880c84ad7285c9d701c"
+SRCREV = "d4f89159849807e1753a2ce76d76bc68c2085896"
 
 S = "${WORKDIR}/git"
 
 # -----------------------------------
-TAR_FILENAME_WAYLAND="mali400-userland-multi-DRM-WAYLAND-STiH410-B2260-${PV_MALI}-${PR_MALI}-20161122"
-TAR_PATH_NAME_WAYLAND="mali400-userland-multi-${PV_MALI}-${PR_MALI}-20161122"
+TAR_FILENAME_WAYLAND="mali400-userland-multi-DRM-WAYLAND-STiH410-B2260-${PV_MALI}-${PR_MALI}-20170831"
+TAR_PATH_NAME_WAYLAND="mali400-userland-multi-wayland-drm-${PV_MALI}-${PR_MALI}-20170831"
 
-TAR_FILENAME_FBDEV="mali400-userland-multi-DRM-FBDEV-STiH410-B2260-${PV_MALI}-${PR_MALI}-20170307"
-TAR_PATH_NAME_FBDEV="mali400-userland-multi-${PV_MALI}-${PR_MALI}-20170307"
+TAR_FILENAME_FBDEV="mali400-userland-multi-DRM-FBDEV-STiH410-B2260-${PV_MALI}-${PR_MALI}-20170831"
+TAR_PATH_NAME_FBDEV="mali400-userland-multi-drm-fbdev-${PV_MALI}-${PR_MALI}-20170831"
 
 def get_gpu_mali_config_handler_for_tar_filename(d):
     distro_features = d.getVar('DISTRO_FEATURES', True).split()
@@ -103,10 +103,12 @@ RPROVIDES_${PN}  = "libegl libegl1 libgles1 libglesv1-cm1 libgles2 libglesv2-2 l
 RREPLACES_${PN}  = "libegl libegl1 libgles1 libglesv1-cm1 libgles2 libglesv2-2 libvg libgbm"
 RCONFLICTS_${PN} = "libegl libegl1 libgles1 libglesv1-cm1 libgles2 libglesv2-2 libvg libgbm"
 
-PACKAGES = "${PN} ${PN}-dev "
+PACKAGES = "${PN} ${PN}-dev ${PN}-debug"
 
 SUMMARY_${PN} = "${SUMMARY}"
 FILES_${PN}   =+ "${libdir}/*.so"
 
 SUMMARY_${PN}-dev  = "${SUMMARY_${PN}} - Development files"
+
+FILES_${PN}-debug   = " ${libdir}/libMali*.debug.so ${libdir}/libMali*.instrumented.so "
 
