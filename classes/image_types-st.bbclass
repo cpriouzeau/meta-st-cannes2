@@ -43,7 +43,7 @@ st_populate_BOOT() {
     #copy kernel
     mcopy -i ${IMGDEPLOYDIR}/${IMAGE_NAME}.bootimg -s ${DEPLOY_DIR_IMAGE}/uImage ::uImage
     #copy devicetree
-    mcopy -i ${IMGDEPLOYDIR}/${IMAGE_NAME}.bootimg -s ${DEPLOY_DIR_IMAGE}/sti*.dtb ::/
+    mcopy -i ${IMGDEPLOYDIR}/${IMAGE_NAME}.bootimg -s ${DEPLOY_DIR_IMAGE}/*sti*.dtb ::/
 
     #copy boot script
     mcopy -i ${IMGDEPLOYDIR}/${IMAGE_NAME}.bootimg -s ${DEPLOY_DIR_IMAGE}/boot/* ::/
