@@ -1,4 +1,4 @@
-# Copyright (C) 2017 Christophe Priouzeau <christophe.priouzeau@st.com>
+# Copyright (C) 2017 STMicroelectronics - All Rights Reserve
 # Released under the MIT license (see COPYING.MIT for the terms)
 
 require recipes-bsp/u-boot/u-boot.inc
