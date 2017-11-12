@@ -18,17 +18,18 @@ inherit image_types
 # |                        |            |                     |
 # 0           ~1MiB             50MiB       ROOTFS_SIZE
 
-IMAGE_DEPENDS_stimg = " \
-        parted-native \
-        mtools-native \
-        u-boot-mkimage-native \
-        e2fsprogs-native \
-        dosfstools-native \
-        coreutils-native \
+do_image_stimg[depends] += " \
+        parted-native:do_populate_sysroot \
+        mtools-native:do_populate_sysroot \
+        u-boot-mkimage-native:do_populate_sysroot \
+        e2fsprogs-native:do_populate_sysroot \
+        dosfstools-native:do_populate_sysroot \
+        coreutils-native:do_populate_sysroot \
         virtual/kernel:do_deploy \
         virtual/bootloader:do_deploy \
         boot-configs-stih410-b2260:do_deploy \
         "
+
 # This image depends on the rootfs image
 IMAGE_TYPEDEP_stimg_append = " ext4 "
 
