@@ -1,4 +1,4 @@
-From 26be931f905172cd3dd63ccf85ded338781d2c49 Mon Sep 17 00:00:00 2001
+From 3c5d49f04037737b00e08b5b138d0b9814cd27a4 Mon Sep 17 00:00:00 2001
 From: Christophe Priouzeau <christophe.priouzeau@st.com>
 Date: Thu, 1 Sep 2016 17:19:08 +0200
 Subject: [PATCH 2/3] modetest: use SMPTE pattern as cursor
@@ -12,10 +12,10 @@ Reviewed-by: Christophe PRIOUZEAU <christophe.priouzeau@st.com>
  1 file changed, 1 insertion(+), 1 deletion(-)
 
 diff --git a/tests/modetest/modetest.c b/tests/modetest/modetest.c
-index 2ef5375..bbd19d1 100644
+index dd0067a..8bd220d 100644
 --- a/tests/modetest/modetest.c
 +++ b/tests/modetest/modetest.c
-@@ -1170,7 +1170,7 @@ static void set_cursors(struct device *dev, struct pipe_arg *pipes, unsigned int
+@@ -1179,7 +1179,7 @@ static void set_cursors(struct device *dev, struct pipe_arg *pipes, unsigned int
  	 * translucent alpha
  	 */
  	bo = bo_create(dev->fd, DRM_FORMAT_ARGB8888, cw, ch, handles, pitches,
