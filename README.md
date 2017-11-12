@@ -20,14 +20,14 @@ Layer depends:
 
     URI: git://git.openembedded.org/openembedded-core
     layers: meta
-    branch: morty
+    branch: rocko
 
     URI: git://git.openembedded.org/meta-openembedded
     layers: meta-oe
-    branch: morty
+    branch: rocko
 
     URI: git://git.openembedded.org/bitbake
-    branch: 1.32
+    branch: 1.36
 
 Machine to be used with Meta-st-cannes2 layer:
     stih410-b2260
@@ -41,7 +41,7 @@ Machine to be used with Meta-st-cannes2 layer:
 
 > cd stih410-b2260
 
-> repo init -u https://github.com/96boards/oe-rpb-manifest.git -b morty
+> repo init -u https://github.com/96boards/oe-rpb-manifest.git -b rocko
 
 > repo sync
 
@@ -103,7 +103,8 @@ where ""/dev/sdX" correspond to your Usb Key kernel device entry on your linux P
 > minicom -D /dev/ttyUSB0
 
 5- wait the end of boot
-login is requested : type root
+login: linaro
+password: linaro
 
 ### To boot from Usb Key
 
@@ -118,7 +119,8 @@ login is requested : type root
 > minicom -D /dev/ttyUSB0
 
 5- wait the end of boot
-        login is requested : type root
+login: linaro
+password: linaro
 
 
 # Known limitations
@@ -134,5 +136,4 @@ One should use:
 to have the AZERTY configuration:
 './etc/xdg/weston/weston.ini' file must be modified by uncommenting 2 lines below line '# for azerty keyboard'
 > [keyboard]
-
 > keymap_layout=fr
