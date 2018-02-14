@@ -7,7 +7,7 @@ inherit module
 
 COMPATIBLE_MACHINE = "stih410-b2260"
 
-DEPENDS = "virtual/kernel"
+DEPENDS += "virtual/kernel elfutils-native util-linux-native openssl-native"
 
 PV_MALI ="r6p1"
 PR_MALI ="01rel0"
@@ -31,14 +31,24 @@ SRC_URI = " \
     file://0009-mali-replace-__GFP_REPEAT-by-__GFP_RETRY_MAYFAIL.patch \
     file://0010-Kernel-4.14-renane-global_page_state-to-global_zone_.patch \
     \
+    file://0011-Fix-build-issue-due-to-typo-issue.patch \
+    file://0012-4.15-change-of-memory-allocation-flags.patch \
+    file://0013-4.15-adapt-to-new-timer-interface.patch \
+    \
     file://69-mali400-stih410-b2260.rules \
     "
-
 
 SRC_URI[md5sum] = "86800f52a1a66a435318a7ee5e4801cc"
 SRC_URI[sha256sum] = "73c614884ee42b655ff1d033d58f7b121172bb659b959ba62db40473afdd979c"
 
 S = "${WORKDIR}/DX910-SW-99002-r6p1-01rel0/driver/"
+
+# do_make_script generate error on kernel
+# extract-cert.c:21:25: fatal error: openssl/bio.h:
+DEPENDS += "openssl-native"
+KERNEL_HOST_EXTRACFLAGS += "-I${STAGING_INCDIR_NATIVE} -L${STAGING_LIBDIR_NATIVE}"
+export HOST_EXTRACFLAGS = "${KERNEL_HOST_EXTRACFLAGS}"
+
 
 # Note: It is possible to use BUILD=debug or BUILD=release
 EXTRA_OEMAKE  = "KDIR=${STAGING_KERNEL_BUILDDIR}"

@@ -1,0 +1,54 @@
+From 7cc322dd316cbefdb3b9f411b915ad57933d414d Mon Sep 17 00:00:00 2001
+From: Christophe Priouzeau <christophe.priouzeau@st.com>
+Date: Tue, 13 Feb 2018 17:15:25 +0100
+Subject: [PATCH 13/14] 4.15: adapt to new timer interface
+
+Signed-off-by: Christophe Priouzeau <christophe.priouzeau@st.com>
+---
+ src/devicedrv/mali/linux/mali_osk_timers.c | 17 +++++++++++++----
+ 1 file changed, 13 insertions(+), 4 deletions(-)
+
+diff --git a/src/devicedrv/mali/linux/mali_osk_timers.c b/src/devicedrv/mali/linux/mali_osk_timers.c
+index 8ada2da..3bbd796 100755
+--- a/src/devicedrv/mali/linux/mali_osk_timers.c
++++ b/src/devicedrv/mali/linux/mali_osk_timers.c
+@@ -20,14 +20,23 @@
+ 
+ struct _mali_osk_timer_t_struct {
+ 	struct timer_list timer;
++	void *data;
++	_mali_osk_timer_callback_t callback;
+ };
+ 
+-typedef void (*timer_timeout_function_t)(unsigned long);
++void _mali_osk_timer_callback(struct timer_list *t)
++{
++	_mali_osk_timer_t *tim = (_mali_osk_timer_t*)t;
++	tim->callback(tim->data);
++}
+ 
+ _mali_osk_timer_t *_mali_osk_timer_init(void)
+ {
+ 	_mali_osk_timer_t *t = (_mali_osk_timer_t *)kmalloc(sizeof(_mali_osk_timer_t), GFP_KERNEL);
+-	if (NULL != t) init_timer(&t->timer);
++	if (NULL != t) {
++		t->timer.function = _mali_osk_timer_callback;
++		timer_setup(&t->timer, t->timer.function, 0);//init_timers();
++	}
+ 	return t;
+ }
+ 
+@@ -65,8 +74,8 @@ mali_bool _mali_osk_timer_pending(_mali_osk_timer_t *tim)
+ void _mali_osk_timer_setcallback(_mali_osk_timer_t *tim, _mali_osk_timer_callback_t callback, void *data)
+ {
+ 	MALI_DEBUG_ASSERT_POINTER(tim);
+-	tim->timer.data = (unsigned long)data;
+-	tim->timer.function = (timer_timeout_function_t)callback;
++	tim->data = data;
++	tim->callback = callback;
+ }
+ 
+ void _mali_osk_timer_term(_mali_osk_timer_t *tim)
+-- 
+2.7.4
+
