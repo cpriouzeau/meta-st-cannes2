@@ -5,36 +5,8 @@ LIC_FILES_CHKSUM = "file://COPYING;md5=d7810fab7487fb0aad327b76f1be7cd7"
 
 inherit kernel
 
-LINUX_VERSION ?= "4.6"
+LINUX_VERSION ?= "4.15"
 B = "${WORKDIR}/linux-${MACHINE}-standard-build"
-
-# -------------------------------------------------------------
-# DTB
-#do_compile_kerneldtb() {
-#    unset CFLAGS CPPFLAGS CXXFLAGS LDFLAGS MACHINE
-#    bbnote "Kernel customized: compilation of device tree file"
-#    if [ ! -z ${DTC_FLAGS} ]; then
-#        oe_runmake ${PARALLEL_MAKE} -C ${S} O=${B} CC="${KERNEL_CC}" LD="${KERNEL_LD}" DTC_FLAGS="${DTC_FLAGS}" dtbs V=1
-#    else
-#        oe_runmake ${PARALLEL_MAKE} -C ${S} O=${B} CC="${KERNEL_CC}" LD="${KERNEL_LD}" dtbs V=1
-#    fi
-#    if test -n "${KERNEL_DEVICETREE}"; then
-#        for DTB in ${KERNEL_DEVICETREE}; do
-#            if echo ${DTB} | grep -q '/dts/'; then
-#                bbwarn "${DTB} contains the full path to the dts file, but only the dtb name should be used."
-#                DTB=`basename ${DTB} | sed 's,\.dts$,.dtb,g'`
-#            fi
-#            if [ ! -f ${B}/arch/${ARCH}/boot/dts/${DTB} ]; then
-#                bberror "Cannot find ${DTB} file from ${B}/arch/${ARCH}/boot/dts/."
-#            else
-#                cp -f ${B}/arch/${ARCH}/boot/dts/${DTB} ${B}/arch/${ARCH}/boot/
-#            fi
-#        done
-#    else
-#        bbnote "no dtb file to copy into ${B}/arch/${ARCH}/boot/"
-#    fi
-#}
-#addtask compile_kerneldtb after do_compile_kernelmodules before do_install
 
 # ---------------------------------------------------------------------
 # Defconfig
@@ -81,47 +53,11 @@ do_configure_prepend() {
 
 # ---------------------------------------------------------------------
 do_install_append() {
-#    if test -n "${KERNEL_DEVICETREE}"; then
-#        for DTB in ${KERNEL_DEVICETREE}; do
-#            if echo ${DTB} | grep -q '/dts/'; then
-#                bbwarn "${DTB} contains the full path to the dts file, but only the dtb name should be used."
-#                DTB=`basename ${DTB} | sed 's,\.dts$,.dtb,g'`
-#            fi
-#            DTB_NAME=`echo ${DTB} | sed "s/\.dtb//g"`
-#            DTB_PATH="${B}/arch/${ARCH}/boot/${DTB}"
-#            install -d ${D}/${KERNEL_IMAGEDEST}
-#            install -m 0644 ${DTB_PATH} ${D}/${KERNEL_IMAGEDEST}/devicetree-${DTB_NAME}.dtb
-#            cd ${D}/${KERNEL_IMAGEDEST}
-#            ln -sf devicetree-${DTB_NAME}.dtb ${DTB_NAME}.dtb
-#            rm -f devicetree-uImage-${DTB_NAME}.dtb
-#            cd -
-#        done
-#    else
-#        bbwarn "KERNEL_DEVICETREE is empty: no dtb file installed in folder ${D}/${KERNEL_IMAGEDEST}"
-#    fi
     cmdline_install
 }
 
 # ---------------------------------------------------------------------
 do_deploy_append() {
-#    if test -n "${KERNEL_DEVICETREE}"; then
-#        for DTB in ${KERNEL_DEVICETREE}; do
-#            if echo ${DTB} | grep -q '/dts/'; then
-#                bbwarn "${DTB} contains the full path to the dts file, but only the dtb name should be used."
-#                DTB=`basename ${DTB} | sed 's,\.dts$,.dtb,g'`
-#            fi
-#            DTB_BASE_NAME=`basename ${DTB} .dtb`
-#            DTB_NAME=`echo "${DTB_BASE_NAME}${KERNEL_IMAGE_BASE_NAME}"`
-#            DTB_PATH="${B}/arch/${ARCH}/boot/${DTB}"
-#            install -d ${DEPLOYDIR}
-#            install -m 0644 ${DTB_PATH} ${DEPLOYDIR}/${DTB_NAME}.dtb
-#            cd ${DEPLOYDIR}
-#            ln -sf ${DTB_NAME}.dtb ${DTB_BASE_NAME}.dtb
-#            cd -
-#        done
-#    else
-#        bbwarn "KERNEL_DEVICETREE is empty: no dtb file installed in folder ${DEPLOYDIR}"
-#    fi
     cmdline_deploy
 }
 
