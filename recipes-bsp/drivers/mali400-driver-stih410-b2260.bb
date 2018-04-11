@@ -35,6 +35,8 @@ SRC_URI = " \
     file://0012-4.15-change-of-memory-allocation-flags.patch \
     file://0013-4.15-adapt-to-new-timer-interface.patch \
     \
+    file://0014-4.16-correct-include-issue-with-dma-direct.h.patch \
+    \
     file://69-mali400-stih410-b2260.rules \
     "
 
