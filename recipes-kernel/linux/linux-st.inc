@@ -1,11 +1,11 @@
 DESCRIPTION = "Linux STI Kernel"
 SECTION = "kernel"
 LICENSE = "GPLv2"
-LIC_FILES_CHKSUM = "file://COPYING;md5=d7810fab7487fb0aad327b76f1be7cd7"
+LIC_FILES_CHKSUM = "file://COPYING;md5=bbea815ee2795b2f4230826c0c6b8814"
 
 inherit kernel
 
-LINUX_VERSION ?= "4.15"
+LINUX_VERSION ?= "4.17"
 B = "${WORKDIR}/linux-${MACHINE}-standard-build"
 
 # ---------------------------------------------------------------------
@@ -92,6 +92,6 @@ python do_loadaddrcheck() {
         bb.fatal('Missing ST_KERNEL_LOADADDR value for ST kernel build: please define it in your machine.')
 }
 
-PACKAGES =+ "kernel-headers"
-FILES_kernel-headers = "${exec_prefix}/src/linux*"
-FILES_kernel-image  += "boot/ ${KERNEL_IMAGEDEST}"
+PACKAGES =+ "${KERNEL_PACKAGE_NAME}-headers"
+FILES_${KERNEL_PACKAGE_NAME}-headers = "${exec_prefix}/src/linux*"
+FILES_${KERNEL_PACKAGE_NAME}-image  += "boot/ ${KERNEL_IMAGEDEST}"
