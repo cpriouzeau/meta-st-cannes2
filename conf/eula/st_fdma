@@ -1,0 +1,39 @@
+ST-fdma (engine for audio support) – Custom BSD type of license
+
+Copyright (c) 2017, STMicroelectronics International N.V. All rights reserved.
+
+Use, reproduction and redistribution of this software in binary form, without modification and solely for
+use in conjunction with STMicroelectronics chipsets, are permitted provided that the following
+conditions are met:
+
+ * Redistributions must reproduce the above copyright notice, this list of conditions and the following
+disclaimers in the documentation and/or other materials provided with the distribution.
+
+ * Neither the name nor trademarks of STMicroelectronics International N.V. nor any other
+STMicroelectronics company may be used to endorse or promote products derived from this software
+without specific prior written permission.
+
+ * No reverse engineering, decompilation or disassembly of this software is permitted.
+
+ * No use, reproduction or redistribution of this software may be done in any manner that may cause
+this software to be redistributed as part of the Linux kernel or in any other manner that would subject
+this software to the terms of the GNU General Public License, the GNU Lesser General Public License, or
+any other copyleft license.
+
+DISCLAIMERS:
+
+        THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDER(S) "AS IS" AND ANY EXPRESS OR
+IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT, ARE DISCLAIMED.
+IN NO EVENT SHALL STMICROELECTRONICS INTERNATIONAL N.V. NOR ANY OTHER
+STMICROELECTRONICS COMPANY BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR
+TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+        EXCEPT THE LIMITED RIGHT TO USE, REPRODUCE AND REDISTRIBUTE THIS SOFTWARE IN BINARY
+FORM, NO LICENSE OR OTHER RIGHTS, WHETHER EXPRESS OR IMPLIED, ARE GRANTED UNDER ANY
+PATENT OR OTHER INTELLECTUAL PROPERTY RIGHTS OF STMICROELECTRONICS INTERNATIONAL N.V.
+OR ANY OTHER STMICROELECTRONICS COMPANY.
