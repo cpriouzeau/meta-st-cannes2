@@ -14,7 +14,6 @@ SRC_URI = "git://github.com/cpriouzeau/STi-U-Boot.git;protocol=https"
 SRCREV = "45114ee573caae1bbaf4f5060d702ede3d2130cb"
 
 SRC_URI_append_stih410-b2260 = " file://st_b2260_stxh410_sdusb_defconfig "
-SRC_URI_append_stih410-b2260 = " file://0001-Increase-the-size-of-kernel-loadable.patch "
 
 UBOOT_LOCALVERSION = "+B2260_2016.09"
 
