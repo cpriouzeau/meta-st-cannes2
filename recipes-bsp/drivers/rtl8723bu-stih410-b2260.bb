@@ -13,6 +13,7 @@ PV = "1.0-git-${SRCPV}"
 # add support for ARM platform
 SRC_URI =+ "file://0001-ARM-Support.patch \
             file://0002-realtek-Disable-IPS-mode.patch \
+            file://0003-4.19-correct-.ndo_select_queue-pointer-function-cast.patch \
             "
 
 DEPENDS = "virtual/kernel"
