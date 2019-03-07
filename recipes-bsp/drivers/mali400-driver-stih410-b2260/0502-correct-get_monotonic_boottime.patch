@@ -1,0 +1,26 @@
+From 5d6982be455045d02dd125f76a1c96d06915b1e3 Mon Sep 17 00:00:00 2001
+From: Christophe Priouzeau <christophe.priouzeau@st.com>
+Date: Mon, 4 Mar 2019 16:57:34 +0100
+Subject: [PATCH 2/3] correct-get_monotonic_boottime
+
+Signed-off-by: Christophe Priouzeau <christophe.priouzeau@st.com>
+---
+ src/devicedrv/mali/linux/mali_osk_time.c | 4 +---
+ 1 file changed, 1 insertion(+), 3 deletions(-)
+
+diff --git a/src/devicedrv/mali/linux/mali_osk_time.c b/src/devicedrv/mali/linux/mali_osk_time.c
+index 76876b6..f8baa61 100755
+--- a/src/devicedrv/mali/linux/mali_osk_time.c
++++ b/src/devicedrv/mali/linux/mali_osk_time.c
+@@ -53,7 +53,5 @@ u64 _mali_osk_time_get_ns(void)
+ 
+ u64 _mali_osk_boot_time_get_ns(void)
+ {
+-	struct timespec tsval;
+-	get_monotonic_boottime(&tsval);
+-	return (u64)timespec_to_ns(&tsval);
++	return ktime_to_us(ktime_get_boottime());
+ }
+-- 
+2.7.4
+

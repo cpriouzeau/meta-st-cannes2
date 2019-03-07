@@ -38,6 +38,10 @@ SRC_URI = " \
     file://0014-4.16-correct-include-issue-with-dma-direct.h.patch \
     \
     file://69-mali400-stih410-b2260.rules \
+    \
+    file://0501-correct-vm_insert_pfn.patch \
+    file://0502-correct-get_monotonic_boottime.patch \
+    file://0503-correct-access_ok.patch \
     "
 
 SRC_URI[md5sum] = "86800f52a1a66a435318a7ee5e4801cc"
