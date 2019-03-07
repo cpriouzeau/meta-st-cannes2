@@ -1,17 +1,15 @@
-From 1aa9545a4c96d866d7039cf4236b6228ceddaebf Mon Sep 17 00:00:00 2001
+From 318fedcfdc41ae8879cc1fdeea88e8b6126e3ba9 Mon Sep 17 00:00:00 2001
 From: Christophe Priouzeau <christophe.priouzeau@st.com>
-Date: Tue, 29 Nov 2016 18:32:07 +0100
-Subject: [PATCH 2/2] realtek: Disable IPS mode
+Date: Mon, 4 Mar 2019 12:18:45 +0100
+Subject: [PATCH 2/2] Realtek-Disable-IPS-mode
 
-Disabling IPS mode increased the bluetooth range
-
-Signed-off-by: Patrice Chotard <patrice.chotard@st.com>
+Signed-off-by: Christophe Priouzeau <christophe.priouzeau@st.com>
 ---
  include/autoconf.h | 2 +-
  1 file changed, 1 insertion(+), 1 deletion(-)
 
 diff --git a/include/autoconf.h b/include/autoconf.h
-index d5556af..6fb6fa9 100644
+index 5b48c54..3dc43a1 100644
 --- a/include/autoconf.h
 +++ b/include/autoconf.h
 @@ -71,7 +71,7 @@
@@ -24,5 +22,5 @@ index d5556af..6fb6fa9 100644
  	//#define CONFIG_IPS_LEVEL_2	1 //enable this to set default IPS mode to IPS_LEVEL_2
  #endif
 -- 
-1.9.1
+2.7.4
 

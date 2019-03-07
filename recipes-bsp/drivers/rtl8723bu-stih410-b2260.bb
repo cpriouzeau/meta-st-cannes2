@@ -4,7 +4,7 @@ LICENSE = "GPLv2"
 LIC_FILES_CHKSUM = "file://Kconfig;md5=ce4c7adf40ddcf6cfca7ee2b333165f0"
 
 SRC_URI = "git://github.com/lwfinger/rtl8723bu.git;protocol=https"
-SRCREV = "8534c0f3e042c03d6dd270994c6742bea3262913"
+SRCREV = "7b5bb8c7e938e1bc92616b37cb23044e954497bb"
 
 S = "${WORKDIR}/git"
 
@@ -12,8 +12,7 @@ PV = "1.0-git-${SRCPV}"
 
 # add support for ARM platform
 SRC_URI =+ "file://0001-ARM-Support.patch \
-            file://0002-realtek-Disable-IPS-mode.patch \
-            file://0003-4.19-correct-.ndo_select_queue-pointer-function-cast.patch \
+            file://0002-Realtek-Disable-IPS-mode.patch \
             "
 
 DEPENDS = "virtual/kernel"

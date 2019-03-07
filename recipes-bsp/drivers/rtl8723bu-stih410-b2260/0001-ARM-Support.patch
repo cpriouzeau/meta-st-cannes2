@@ -1,18 +1,18 @@
-From 3de32d0a4fbbe2d39b3e07f04a162d0fe3a4424c Mon Sep 17 00:00:00 2001
+From 726d1ff3ed8f96c334ae3e5fa74ee0bddc5daebc Mon Sep 17 00:00:00 2001
 From: Christophe Priouzeau <christophe.priouzeau@st.com>
-Date: Mon, 6 Feb 2017 15:46:50 +0100
-Subject: [PATCH] ARM Support
+Date: Mon, 4 Mar 2019 12:18:33 +0100
+Subject: [PATCH 1/2] ARM Support
 
 Signed-off-by: Christophe Priouzeau <christophe.priouzeau@st.com>
 ---
- Makefile | 20 ++++++++++++++++++--
- 1 file changed, 18 insertions(+), 2 deletions(-)
+ Makefile | 18 ++++++++++++++++--
+ 1 file changed, 16 insertions(+), 2 deletions(-)
 
 diff --git a/Makefile b/Makefile
-index 1d031c2..cd5cb75 100644
+index 1ef9c68..f97d7b7 100644
 --- a/Makefile
 +++ b/Makefile
-@@ -15,7 +15,7 @@ EXTRA_CFLAGS += -Wno-unused-label
+@@ -18,7 +18,7 @@ EXTRA_CFLAGS += -Wno-unused-label
  EXTRA_CFLAGS += -Wno-unused-parameter
  EXTRA_CFLAGS += -Wno-unused-function
  EXTRA_CFLAGS += -Wno-unused
@@ -21,18 +21,18 @@ index 1d031c2..cd5cb75 100644
  
  ccflags-y += -D__CHECK_ENDIAN__
  
-@@ -53,7 +53,7 @@ CONFIG_PNO_SUPPORT = n
+@@ -56,7 +56,7 @@ CONFIG_PNO_SUPPORT = n
  CONFIG_PNO_SET_DEBUG = n
  CONFIG_AP_WOWLAN = n
  ###################### Platform Related #######################
 -CONFIG_PLATFORM_I386_PC = y
 +#CONFIG_PLATFORM_I386_PC = y
+ CONFIG_PLATFORM_FS_MX61 = n
  ###############################################################
  
- CONFIG_DRVEXT_MODULE = n
-@@ -249,6 +249,22 @@ EXTRA_CFLAGS += -DCONFIG_GPIO_WAKEUP
+@@ -252,6 +252,20 @@ ifeq ($(CONFIG_GPIO_WAKEUP), y)
+ EXTRA_CFLAGS += -DCONFIG_GPIO_WAKEUP
  endif
- 
  
 +ifeq ($(CONFIG_SOC_STIH407), y)
 +EXTRA_CFLAGS += -DCONFIG_IOCTL_CFG80211
@@ -48,11 +48,9 @@ index 1d031c2..cd5cb75 100644
 +MODDESTDIR := /lib/modules/$(KVER)/kernel/drivers/net/wireless/
 +INSTALL_PREFIX :=
 +endif
-+
-+
+ 
  ifeq ($(CONFIG_PLATFORM_I386_PC), y)
  EXTRA_CFLAGS += -DCONFIG_IOCTL_CFG80211
- EXTRA_CFLAGS += -DRTW_USE_CFG80211_STA_EVENT # only enable when kernel >= 3.2
 -- 
 2.7.4
 
