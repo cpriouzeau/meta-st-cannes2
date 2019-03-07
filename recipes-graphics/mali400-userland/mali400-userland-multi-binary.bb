@@ -21,38 +21,32 @@ PV="${PV_MALI}"
 PR="${PR_MALI}+binary${SRCPV}"
 
 SRC_URI= "git://github.com/STMicroelectronics/Mali-400-ST-build-for-B2260.git;protocol=https;branch=master"
-SRCREV = "d4f89159849807e1753a2ce76d76bc68c2085896"
-
-# for include file
-SRC_URI += "https://mesa.freedesktop.org/archive/mesa-17.3.8.tar.xz;name=mesa"
-SRC_URI[mesa.md5sum] = "203d1a79156ab6926f2d253b377e9d9d"
-SRC_URI[mesa.sha256sum] = "8f9d9bf281c48e4a8f5228816577263b4c655248dc7666e75034ab422951a6b1"
-MESA_S = "${WORKDIR}/mesa-17.3.8"
+SRCREV = "747c0fe0e9e76d537f0b6536892a23375923eac9"
 
 S = "${WORKDIR}/git"
 
 # -----------------------------------
-TAR_FILENAME_WAYLAND="mali400-userland-multi-DRM-WAYLAND-STiH410-B2260-${PV_MALI}-${PR_MALI}-20170831"
-TAR_PATH_NAME_WAYLAND="mali400-userland-multi-wayland-drm-${PV_MALI}-${PR_MALI}-20170831"
+TAR_FILENAME_WAYLAND="mali400-userland-multi-DRM-WAYLAND-STiH410-B2260-${PV_MALI}-${PR_MALI}-20181108"
+TAR_PATH_NAME_WAYLAND="mali400-userland-multi-wayland-drm-${PV_MALI}-${PR_MALI}-20181108"
 
-TAR_FILENAME_FBDEV="mali400-userland-multi-DRM-FBDEV-STiH410-B2260-${PV_MALI}-${PR_MALI}-20170831"
-TAR_PATH_NAME_FBDEV="mali400-userland-multi-drm-fbdev-${PV_MALI}-${PR_MALI}-20170831"
+TAR_FILENAME_FBDEV="mali400-userland-multi-DRM-FBDEV-STiH410-B2260-${PV_MALI}-${PR_MALI}-20181108"
+TAR_PATH_NAME_FBDEV="mali400-userland-multi-drm-fbdev-${PV_MALI}-${PR_MALI}-20181108"
 
 def get_gpu_mali_config_handler_for_tar_filename(d):
-    distro_features = d.getVar('DISTRO_FEATURES', True).split()
+    distro_features = d.getVar('DISTRO_FEATURES').split()
 
     if 'wayland' in distro_features:
-        return d.getVar('TAR_FILENAME_WAYLAND', True)
+        return d.getVar('TAR_FILENAME_WAYLAND')
     else:
-        return d.getVar('TAR_FILENAME_FBDEV', True)
+        return d.getVar('TAR_FILENAME_FBDEV')
 
 def get_gpu_mali_config_handler_for_tar_path(d):
-    distro_features = d.getVar('DISTRO_FEATURES', True).split()
+    distro_features = d.getVar('DISTRO_FEATURES').split()
 
     if 'wayland' in distro_features:
-        return d.getVar('TAR_PATH_NAME_WAYLAND', True)
+        return d.getVar('TAR_PATH_NAME_WAYLAND')
     else:
-        return d.getVar('TAR_PATH_NAME_FBDEV', True)
+        return d.getVar('TAR_PATH_NAME_FBDEV')
 
 TAR_FILENAME = "${@get_gpu_mali_config_handler_for_tar_filename(d)}"
 TAR_PATH_NAME = "${@get_gpu_mali_config_handler_for_tar_path(d)}"
@@ -89,28 +83,18 @@ do_patch() {
     tar xfJ ${MALI_TARBALL_NAME}
 }
 
-
 #------------------------------------------
 #
 do_install() {
     install -m 755 -d ${D}/usr/
     cp -R ${S}/${TAR_PATH_NAME}/usr ${D}/
 
-    # Do not use the include provided by mali400-userland tarball
-    for d in EGL GLES GLES2 KHR;
-    do
-        rm -rf ${D}/usr/include/$d
-    done
-
-    # install mesa include instead of mali400-userland include
-    for d in EGL GLES GLES2 KHR;
-    do
-        install -d ${D}/usr/include/$d
-        install -m 644 ${MESA_S}/include/$d/* ${D}/usr/include/$d/
-    done
-    # disable X11
-    sed -i -e 's|^#if defined(MESA_EGL_NO_X11_HEADERS)$|#if 1 /*defined(MESA_EGL_NO_X11_HEADERS)*/ |' ${D}${includedir}/EGL/eglplatform.h
-
+    # remove libwayland-egl which are now provided by wayland
+    if test -f ${D}/usr/lib/libwayland-egl.so ;
+    then
+        rm ${D}/usr/lib/libwayland*
+        rm ${D}/usr/lib/pkgconfig/*wayland*.pc
+    fi
 }
 
 # Cannot split or strip last added libraries
