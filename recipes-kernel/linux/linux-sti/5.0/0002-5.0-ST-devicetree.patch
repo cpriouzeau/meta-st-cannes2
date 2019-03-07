@@ -1,18 +1,17 @@
-From 2015d2aa2c4a09bbaac439aac2af53ccc3ca09f3 Mon Sep 17 00:00:00 2001
+From ee26e4b63e350c5928dd386cbe83a5cdd62d8ecb Mon Sep 17 00:00:00 2001
 From: Christophe Priouzeau <christophe.priouzeau@st.com>
-Date: Fri, 17 Aug 2018 09:53:06 +0200
-Subject: [PATCH 3/3] 4.18-ST-devicetree
+Date: Mon, 4 Mar 2019 11:25:17 +0100
+Subject: [PATCH 2/2] 5.0-ST-devicetree
 
 ---
- arch/arm/boot/dts/stih407-family.dtsi  | 23 ++++++++-
- arch/arm/boot/dts/stih407-pinctrl.dtsi | 35 +++++++++++++
- arch/arm/boot/dts/stih410-b2120.dts    |  5 ++
- arch/arm/boot/dts/stih410-b2260.dts    | 21 ++++++--
- arch/arm/boot/dts/stih410.dtsi         | 92 ++++++++++++++++++++++++++++++++++
- 5 files changed, 172 insertions(+), 4 deletions(-)
+ arch/arm/boot/dts/stih407-family.dtsi | 18 ++++++++-
+ arch/arm/boot/dts/stih410-b2120.dts   |  5 +++
+ arch/arm/boot/dts/stih410-b2260.dts   | 19 ++++++++-
+ arch/arm/boot/dts/stih410.dtsi        | 75 +++++++++++++++++++++++++++++++++++
+ 4 files changed, 114 insertions(+), 3 deletions(-)
 
 diff --git a/arch/arm/boot/dts/stih407-family.dtsi b/arch/arm/boot/dts/stih407-family.dtsi
-index 9e29a44..f60004e 100644
+index 9e29a44..812f579 100644
 --- a/arch/arm/boot/dts/stih407-family.dtsi
 +++ b/arch/arm/boot/dts/stih407-family.dtsi
 @@ -53,7 +53,6 @@
@@ -23,7 +22,7 @@ index 9e29a44..f60004e 100644
  			st,syscfg = <&syscfg_core 0x8e0>;
  		};
  		cpu@1 {
-@@ -999,5 +998,27 @@
+@@ -999,5 +998,22 @@
  				 <&clk_s_c0_flexgen CLK_ST231_DMU>,
  				 <&clk_s_c0_flexgen CLK_FLASH_PROMIP>;
  		};
@@ -44,59 +43,8 @@ index 9e29a44..f60004e 100644
 +			status = "disabled";
 +		};
 +
-+		socinfo {
-+			compatible = "st,stih407-socinfo";
-+			st,syscfg = <&syscfg_core>;
-+		};
-+
  	};
  };
-diff --git a/arch/arm/boot/dts/stih407-pinctrl.dtsi b/arch/arm/boot/dts/stih407-pinctrl.dtsi
-index e393519..42e55db 100644
---- a/arch/arm/boot/dts/stih407-pinctrl.dtsi
-+++ b/arch/arm/boot/dts/stih407-pinctrl.dtsi
-@@ -1023,6 +1023,41 @@
- 				st,retime-pin-mask = <0x7f>;
- 			};
- 
-+			dvo {
-+				pinctrl_dvo: dvo {
-+					st,pins {
-+						hs = <&pio30 0 ALT2 OUT SE_NICLK_IO 0 CLK_A>;
-+						vs = <&pio30 1 ALT2 OUT SE_NICLK_IO 0 CLK_A>;
-+						de = <&pio30 2 ALT2 OUT SE_NICLK_IO 0 CLK_A>;
-+						ck = <&pio30 3 ALT2 (OE | CLKNOTDATA) 0>;
-+						d0 = <&pio30 4 ALT2 OUT SE_NICLK_IO 0 CLK_A>;
-+						d1 = <&pio30 5 ALT2 OUT SE_NICLK_IO 0 CLK_A>;
-+						d2 = <&pio30 6 ALT2 OUT SE_NICLK_IO 0 CLK_A>;
-+						d3 = <&pio30 7 ALT2 OUT SE_NICLK_IO 0 CLK_A>;
-+						d4 = <&pio31 0 ALT2 OUT SE_NICLK_IO 0 CLK_A>;
-+						d5 = <&pio31 1 ALT2 OUT SE_NICLK_IO 0 CLK_A>;
-+						d6 = <&pio31 2 ALT2 OUT SE_NICLK_IO 0 CLK_A>;
-+						d7 = <&pio31 3 ALT2 OUT SE_NICLK_IO 0 CLK_A>;
-+						d8 = <&pio31 4 ALT2 OUT SE_NICLK_IO 0 CLK_A>;
-+						d9 = <&pio31 5 ALT2 OUT SE_NICLK_IO 0 CLK_A>;
-+						d10 = <&pio31 6 ALT2 OUT SE_NICLK_IO 0 CLK_A>;
-+						d11 = <&pio31 7 ALT2 OUT SE_NICLK_IO 0 CLK_A>;
-+						d12 = <&pio32 0 ALT2 OUT SE_NICLK_IO 0 CLK_A>;
-+						d13 = <&pio32 1 ALT2 OUT SE_NICLK_IO 0 CLK_A>;
-+						d14 = <&pio32 2 ALT2 OUT SE_NICLK_IO 0 CLK_A>;
-+						d15 = <&pio32 3 ALT2 OUT SE_NICLK_IO 0 CLK_A>;
-+						d16 = <&pio32 4 ALT2 OUT SE_NICLK_IO 0 CLK_A>;
-+						d17 = <&pio32 5 ALT2 OUT SE_NICLK_IO 0 CLK_A>;
-+						d18 = <&pio32 6 ALT2 OUT SE_NICLK_IO 0 CLK_A>;
-+						d19 = <&pio32 7 ALT2 OUT SE_NICLK_IO 0 CLK_A>;
-+						d20 = <&pio33 0 ALT2 OUT SE_NICLK_IO 0 CLK_A>;
-+						d21 = <&pio33 1 ALT2 OUT SE_NICLK_IO 0 CLK_A>;
-+						d22 = <&pio33 2 ALT2 OUT SE_NICLK_IO 0 CLK_A>;
-+						d23 = <&pio33 3 ALT2 OUT SE_NICLK_IO 0 CLK_A>;
-+					};
-+				};
-+			};
-+
- 			i2c4 {
- 				pinctrl_i2c4_default: i2c4-default {
- 					st,pins {
 diff --git a/arch/arm/boot/dts/stih410-b2120.dts b/arch/arm/boot/dts/stih410-b2120.dts
 index 2a5a980..aa86fd1 100644
 --- a/arch/arm/boot/dts/stih410-b2120.dts
@@ -113,7 +61,7 @@ index 2a5a980..aa86fd1 100644
  	};
  };
 diff --git a/arch/arm/boot/dts/stih410-b2260.dts b/arch/arm/boot/dts/stih410-b2260.dts
-index 155caa8..ba184d4 100644
+index 4ee6d51..760f425 100644
 --- a/arch/arm/boot/dts/stih410-b2260.dts
 +++ b/arch/arm/boot/dts/stih410-b2260.dts
 @@ -15,7 +15,7 @@
@@ -147,16 +95,7 @@ index 155caa8..ba184d4 100644
  	};
  
  	sound: sound {
-@@ -62,7 +77,7 @@
- 		simple-audio-card,name = "STI-B2260";
- 		status = "okay";
- 
--		simple-audio-card,dai-link0 {
-+		simple-audio-card,dai-link@0 {
- 			/* DAC */
- 			format = "i2s";
- 			mclk-fs = <128>;
-@@ -196,7 +211,7 @@
+@@ -199,7 +214,7 @@
  			/* HDMI V1.3a supports Standard mode only */
  			clock-frequency = <100000>;
  			st,i2c-min-scl-pulse-width-us = <0>;
@@ -166,7 +105,7 @@ index 155caa8..ba184d4 100644
  		};
  
 diff --git a/arch/arm/boot/dts/stih410.dtsi b/arch/arm/boot/dts/stih410.dtsi
-index 888548e..f366cc8 100644
+index 888548e..22a4359 100644
 --- a/arch/arm/boot/dts/stih410.dtsi
 +++ b/arch/arm/boot/dts/stih410.dtsi
 @@ -15,7 +15,52 @@
@@ -222,31 +161,7 @@ index 888548e..f366cc8 100644
  		usb2_picophy1: phy2@0 {
  			compatible = "st,stih407-usb2-phy";
  			reg = <0 0>;
-@@ -239,6 +284,23 @@
- 					 <&clk_s_d2_quadfs 1>;
- 			};
- 
-+			sti-dvo@8d00400 {
-+				compatible = "st,stih407-dvo";
-+				status = "disabled";
-+				reg = <0x8d00400 0x200>;
-+				reg-names = "dvo-reg";
-+				clock-names = "dvo_pix",
-+					      "dvo",
-+					      "main_parent",
-+					      "aux_parent";
-+				clocks = <&clk_s_d2_flexgen CLK_PIX_DVO>,
-+					 <&clk_s_d2_flexgen CLK_DVO>,
-+					 <&clk_s_d2_quadfs 0>,
-+					 <&clk_s_d2_quadfs 1>;
-+				pinctrl-names = "default";
-+				pinctrl-0 = <&pinctrl_dvo>;
-+			};
-+
- 			sti-hqvdp@9c00000 {
- 				compatible = "st,stih407-hqvdp";
- 				reg = <0x9C00000 0x100000>;
-@@ -299,5 +361,35 @@
+@@ -299,5 +344,35 @@
  			resets = <&softreset STIH407_LPM_SOFTRESET>;
  			hdmi-phandle = <&sti_hdmi>;
  		};

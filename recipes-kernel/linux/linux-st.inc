@@ -1,11 +1,11 @@
 DESCRIPTION = "Linux STI Kernel"
 SECTION = "kernel"
 LICENSE = "GPLv2"
-LIC_FILES_CHKSUM = "file://COPYING;md5=bbea815ee2795b2f4230826c0c6b8814"
+LIC_FILES_CHKSUM = "file://COPYING;md5=d7810fab7487fb0aad327b76f1be7cd7"
 
 inherit kernel
 
-LINUX_VERSION ?= "4.17"
+LINUX_VERSION ?= "4.19"
 B = "${WORKDIR}/linux-${MACHINE}-standard-build"
 
 # ---------------------------------------------------------------------
@@ -49,39 +49,6 @@ do_configure_prepend() {
     fi
 
     yes '' | oe_runmake -C ${S} O=${B} CC="${KERNEL_CC}" LD="${KERNEL_LD}" oldconfig
-}
-
-# ---------------------------------------------------------------------
-do_install_append() {
-    cmdline_install
-}
-
-# ---------------------------------------------------------------------
-do_deploy_append() {
-    cmdline_deploy
-}
-
-# ---------------------------------------------------------------------
-# Kernel COMMAND LINE
-#
-cmdline_install() {
-    STI_CMDLINE_SD=`echo "${KERNEL_CMDLINE}" | sed "s;##ROOT##;/dev/mmcblk0p2;"`
-    STI_CMDLINE_USB=`echo "${KERNEL_CMDLINE}" | sed "s;##ROOT##;/dev/sda2;"`
-    install -d ${D}/boot
-    echo "$STI_CMDLINE_SD" > ${D}/boot/cmdline_sdcard.txt
-    echo "$STI_CMDLINE_SD ${KERNEL_CMDLINE_DEV_APPEND}" > ${D}/boot/cmdline_dev_sdcard.txt
-    echo "$STI_CMDLINE_USB" > ${D}/boot/cmdline_usbkey.txt
-    echo "$STI_CMDLINE_USB" > ${D}/boot/cmdline_dev_usbkey.txt
-}
-cmdline_deploy() {
-    if [ -f ${D}/boot/cmdline_sdcard.txt ];
-    then
-        install -d ${DEPLOYDIR}/
-        install -m 0644 ${D}/boot/cmdline_sdcard.txt ${DEPLOYDIR}/
-        install -m 0644 ${D}/boot/cmdline_dev_sdcard.txt ${DEPLOYDIR}/
-        install -m 0644 ${D}/boot/cmdline_usbkey.txt ${DEPLOYDIR}/
-        install -m 0644 ${D}/boot/cmdline_dev_usbkey.txt ${DEPLOYDIR}/
-    fi
 }
 
 # ---------------------------------------------------------------------

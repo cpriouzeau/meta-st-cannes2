@@ -1,7 +1,7 @@
-From 588978b7d7f5a26555dc6b21002456655b75fb16 Mon Sep 17 00:00:00 2001
+From e84a5d1507e19bdc0f95481ea058ad25c6458314 Mon Sep 17 00:00:00 2001
 From: Christophe Priouzeau <christophe.priouzeau@st.com>
-Date: Tue, 14 Aug 2018 15:15:32 +0200
-Subject: [PATCH 2/3] 4.18-ST-misc
+Date: Mon, 4 Mar 2019 11:25:07 +0100
+Subject: [PATCH 1/2] 5.0-ST-misc
 
 ---
  arch/arm/include/asm/outercache.h | 10 +++++
@@ -451,10 +451,10 @@ index 808efbb..14baf64 100644
  };
  
 diff --git a/drivers/clocksource/Kconfig b/drivers/clocksource/Kconfig
-index dec0dd8..dce66da 100644
+index a9e26f6..46fb16b 100644
 --- a/drivers/clocksource/Kconfig
 +++ b/drivers/clocksource/Kconfig
-@@ -379,7 +379,7 @@ config ARM_TIMER_SP804
+@@ -375,7 +375,7 @@ config ARM_TIMER_SP804
  
  config CLKSRC_ARM_GLOBAL_TIMER_SCHED_CLOCK
  	bool
