@@ -14,10 +14,10 @@ GPU_USERLAND_LIBRARIES_WAYLAND ?= "mali400-userland-multi-binary"
 
 def get_gpu_mali_handler(d):
     """  Overloading the default EGL/GLES/mesa implementation."""
-    machine_features = d.getVar('MACHINE_FEATURES', True).split()
-    distro_features = d.getVar('DISTRO_FEATURES', True).split()
+    machine_features = d.getVar('MACHINE_FEATURES').split()
+    distro_features = d.getVar('DISTRO_FEATURES').split()
 
-    gpu_lib_wayland = d.getVar('GPU_USERLAND_LIBRARIES_WAYLAND', True).split()
+    gpu_lib_wayland = d.getVar('GPU_USERLAND_LIBRARIES_WAYLAND').split()
 
     if 'gpu' in machine_features:
         if 'wayland' in distro_features:

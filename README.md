@@ -20,14 +20,14 @@ Layer depends:
 
     URI: git://git.openembedded.org/openembedded-core
     layers: meta
-    branch: sumo
+    branch: thud
 
     URI: git://git.openembedded.org/meta-openembedded
     layers: meta-oe
-    branch: sumo
+    branch: thud
 
     URI: git://git.openembedded.org/bitbake
-    branch: 1.38
+    branch: 1.40
 
 Machine to be used with Meta-st-cannes2 layer:
     stih410-b2260
@@ -41,7 +41,7 @@ Machine to be used with Meta-st-cannes2 layer:
 
 > cd stih410-b2260
 
-> repo init -u https://github.com/96boards/oe-rpb-manifest.git -b sumo
+> repo init -u https://github.com/96boards/oe-rpb-manifest.git -b thud
 
 > repo sync
 
