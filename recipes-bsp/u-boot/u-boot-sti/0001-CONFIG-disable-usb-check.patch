@@ -1,0 +1,25 @@
+From 219a8fc5619ada52e3957b7838b77c84d50910dd Mon Sep 17 00:00:00 2001
+From: Christophe Priouzeau <christophe.priouzeau@st.com>
+Date: Tue, 6 Nov 2018 11:53:10 +0100
+Subject: [PATCH] CONFIG: disable usb check
+
+Signed-off-by: Christophe Priouzeau <christophe.priouzeau@st.com>
+---
+ include/configs/stih410-b2260.h | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/include/configs/stih410-b2260.h b/include/configs/stih410-b2260.h
+index d8bf3b6..5abada8 100644
+--- a/include/configs/stih410-b2260.h
++++ b/include/configs/stih410-b2260.h
+@@ -22,7 +22,6 @@
+ 
+ #define BOOT_TARGET_DEVICES(func) \
+ 	func(MMC, mmc, 0) \
+-	func(USB, usb, 0) \
+ 	func(DHCP, dhcp, na)
+ #include <config_distro_bootcmd.h>
+ #define CONFIG_BOOTFILE			"uImage"
+-- 
+2.7.4
+
