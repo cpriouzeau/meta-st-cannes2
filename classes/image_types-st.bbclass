@@ -51,13 +51,17 @@ st_populate_BOOT() {
         mcopy -i ${IMGDEPLOYDIR}/${IMAGE_NAME}.bootimg -s ${DEPLOY_DIR_IMAGE}/sti*.dtb ::/
     fi
 
+    for conf in "${UBOOT_CONFIG}";
+    do
+        mkdir -p ${DEPLOY_DIR_IMAGE}/boot/$conf
+    done
     #copy boot script
     mcopy -i ${IMGDEPLOYDIR}/${IMAGE_NAME}.bootimg -s ${DEPLOY_DIR_IMAGE}/boot/* ::/
 
     #copy u-boot
     for conf in "${UBOOT_CONFIG}";
     do
-        mcopy -i ${IMGDEPLOYDIR}/${IMAGE_NAME}.bootimg -s ${DEPLOY_DIR_IMAGE}/u-boot.bin-$conf ::/$conf/u-boot.bin
+         mcopy -i ${IMGDEPLOYDIR}/${IMAGE_NAME}.bootimg -s ${DEPLOY_DIR_IMAGE}/u-boot.bin-$conf ::/$conf/u-boot.bin
     done
 }
 
