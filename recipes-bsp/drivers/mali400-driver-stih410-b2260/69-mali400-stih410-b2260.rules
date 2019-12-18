@@ -1,1 +1,0 @@
-KERNEL=="mali*", MODE="664", GROUP="video"
