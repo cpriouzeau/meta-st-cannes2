@@ -20,14 +20,14 @@ Layer depends:
 
     URI: git://git.openembedded.org/openembedded-core
     layers: meta
-    branch: thud
+    branch: zeus
 
     URI: git://git.openembedded.org/meta-openembedded
     layers: meta-oe
-    branch: thud
+    branch: zeus
 
     URI: git://git.openembedded.org/bitbake
-    branch: 1.40
+    branch: 1.44
 
 Machine to be used with Meta-st-cannes2 layer:
     stih410-b2260
@@ -41,9 +41,12 @@ Machine to be used with Meta-st-cannes2 layer:
 
 > cd stih410-b2260
 
-> repo init -u https://github.com/96boards/oe-rpb-manifest.git -b thud
+> repo init -u https://github.com/96boards/oe-rpb-manifest.git -b zeus
 
 > repo sync
+
+if layers/meta-st-cannes2 are not present, download it
+> git clone https://github.com/cpriouzeau/meta-st-cannes2 -b zeus layers/meta-st-cannes2
 
 #### To compile the software:
 
@@ -54,6 +57,11 @@ Machine to be used with Meta-st-cannes2 layer:
 -> for Machine choose: stih410-b2260
 
 -> for Distributions choose: rpb-wayland
+
+if meta-st-cannes2 are not referenced on conf/bblayers.conf, please added via
+> bitbake-layers add-layer ../layers/meta-st-cannes2/
+
+Generate the image for rpb weston
 > bitbake rpb-weston-image
 
 Generated tar.gz is stored in stih410-b2260/build-rpb-wayland/tmp-rpb_wayland-glibc/deploy/images/stih410-b2260/
