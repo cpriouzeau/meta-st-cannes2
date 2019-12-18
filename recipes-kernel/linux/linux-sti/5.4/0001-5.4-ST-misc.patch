@@ -1,24 +1,23 @@
-From 1c6eda5e0dea693a8b34066519295b8e2c99b704 Mon Sep 17 00:00:00 2001
+From 217368fb1ab099595d060a5dc91560ced4427465 Mon Sep 17 00:00:00 2001
 From: Christophe Priouzeau <christophe.priouzeau@st.com>
-Date: Sun, 12 Nov 2017 17:59:09 +0100
-Subject: [PATCH 2/4] 4.14 ST: misc
+Date: Fri, 13 Dec 2019 15:26:03 +0100
+Subject: [PATCH 1/2] 5.4-ST-misc
 
 ---
- arch/arm/include/asm/outercache.h |   9 +++
- arch/arm/include/asm/tz.h         |  94 +++++++++++++++++++++++++
+ arch/arm/include/asm/outercache.h |  10 +++
+ arch/arm/include/asm/tz.h         |  95 +++++++++++++++++++++++++++
  arch/arm/mach-sti/board-dt.c      |   9 ---
- arch/arm/mm/cache-l2x0.c          |  92 +++++++++++++++++++------
- drivers/clk/clk.c                 | 140 ++++++++++++++++++++++++++++++++++++++
+ arch/arm/mm/cache-l2x0.c          | 103 ++++++++++++++++++++++--------
  drivers/clocksource/Kconfig       |   2 +-
- drivers/i2c/busses/i2c-st.c       |  34 +++++++--
- 7 files changed, 345 insertions(+), 35 deletions(-)
+ drivers/i2c/busses/i2c-st.c       |  31 +++++++--
+ 6 files changed, 209 insertions(+), 41 deletions(-)
  create mode 100644 arch/arm/include/asm/tz.h
 
 diff --git a/arch/arm/include/asm/outercache.h b/arch/arm/include/asm/outercache.h
-index c2bf24f..a739245 100644
+index 336463775..a7837e1e6 100644
 --- a/arch/arm/include/asm/outercache.h
 +++ b/arch/arm/include/asm/outercache.h
-@@ -39,6 +39,8 @@ struct outer_cache_fns {
+@@ -27,6 +27,8 @@ struct outer_cache_fns {
  	/* This is an ARM L2C thing */
  	void (*write_sec)(unsigned long, unsigned);
  	void (*configure)(const struct l2x0_regs *);
@@ -27,7 +26,7 @@ index c2bf24f..a739245 100644
  };
  
  extern struct outer_cache_fns outer_cache;
-@@ -129,4 +131,11 @@ static inline void outer_resume(void) { }
+@@ -117,4 +119,12 @@ static inline void outer_resume(void) { }
  
  #endif
  
@@ -38,13 +37,14 @@ index c2bf24f..a739245 100644
 +		return outer_cache.tz_mutex(lock);
 +	return false;
 +}
++
  #endif	/* __ASM_OUTERCACHE_H */
 diff --git a/arch/arm/include/asm/tz.h b/arch/arm/include/asm/tz.h
 new file mode 100644
-index 0000000..bfd3231
+index 000000000..f1ff6c275
 --- /dev/null
 +++ b/arch/arm/include/asm/tz.h
-@@ -0,0 +1,94 @@
+@@ -0,0 +1,95 @@
 +#ifndef __ASM_ARM_TZ_H
 +#define __ASM_ARM_TZ_H
 +
@@ -139,11 +139,12 @@ index 0000000..bfd3231
 +#endif
 +
 +#endif /* __ASM_ARM_TZ_H */
++
 diff --git a/arch/arm/mach-sti/board-dt.c b/arch/arm/mach-sti/board-dt.c
-index e04cd1b..cfee0ef 100644
+index dcb98937f..ffecbf296 100644
 --- a/arch/arm/mach-sti/board-dt.c
 +++ b/arch/arm/mach-sti/board-dt.c
-@@ -23,14 +23,6 @@ static const char *const stih41x_dt_match[] __initconst = {
+@@ -20,14 +20,6 @@ static const char *const stih41x_dt_match[] __initconst = {
  	NULL
  };
  
@@ -158,28 +159,29 @@ index e04cd1b..cfee0ef 100644
  DT_MACHINE_START(STM, "STi SoC with Flattened Device Tree")
  	.dt_compat	= stih41x_dt_match,
  	.l2c_aux_val	= L2C_AUX_CTRL_SHARED_OVERRIDE |
-@@ -39,5 +31,4 @@ DT_MACHINE_START(STM, "STi SoC with Flattened Device Tree")
+@@ -36,5 +28,4 @@ DT_MACHINE_START(STM, "STi SoC with Flattened Device Tree")
  			  L2C_AUX_CTRL_WAY_SIZE(4),
  	.l2c_aux_mask	= 0xc0000fff,
  	.smp		= smp_ops(sti_smp_ops),
 -	.l2c_write_sec	= sti_l2_write_sec,
  MACHINE_END
 diff --git a/arch/arm/mm/cache-l2x0.c b/arch/arm/mm/cache-l2x0.c
-index 808efbb..14baf64 100644
+index 12c26eb88..4cbc3d5f9 100644
 --- a/arch/arm/mm/cache-l2x0.c
 +++ b/arch/arm/mm/cache-l2x0.c
-@@ -31,6 +31,7 @@
- #include <asm/cputype.h>
+@@ -20,6 +20,7 @@
  #include <asm/hardware/cache-l2x0.h>
+ #include <asm/hardware/cache-aurora-l2.h>
  #include "cache-tauros3.h"
 +#include <asm/tz.h>
- #include "cache-aurora-l2.h"
  
  struct l2c_init_data {
-@@ -85,6 +86,26 @@ static void l2c_write_sec(unsigned long val, void __iomem *base, unsigned reg)
+ 	const char *type;
+@@ -72,6 +73,26 @@ static void l2c_write_sec(unsigned long val, void __iomem *base, unsigned reg)
+ 		writel_relaxed(val, base + reg);
  }
  
- /*
++/*
 + * Shared mutex to synchronise L2CC maintenance between linux
 + * world and secure world (ARM TZ).
 + */
@@ -199,11 +201,10 @@ index 808efbb..14baf64 100644
 +		raw_spin_unlock_irqrestore(&l2x0_lock, _flags);	\
 +	} while (0)
 +
-+/*
+ /*
   * This should only be called when we have a requirement that the
   * register be written due to a work-around, as platforms running
-  * in non-secure mode may not be able to access this register.
-@@ -248,6 +269,28 @@ static void l2c210_sync(void)
+@@ -236,6 +257,28 @@ static void l2c210_sync(void)
  	__l2c210_cache_sync(l2x0_base);
  }
  
@@ -232,7 +233,7 @@ index 808efbb..14baf64 100644
  static const struct l2c_init_data l2c210_data __initconst = {
  	.type = "L2C-210",
  	.way_size_0 = SZ_8K,
-@@ -264,6 +307,7 @@ static const struct l2c_init_data l2c210_data __initconst = {
+@@ -252,6 +295,7 @@ static const struct l2c_init_data l2c210_data __initconst = {
  		.disable = l2c_disable,
  		.sync = l2c210_sync,
  		.resume = l2c_resume,
@@ -240,7 +241,7 @@ index 808efbb..14baf64 100644
  	},
  };
  
-@@ -287,10 +331,10 @@ static void l2c220_op_way(void __iomem *base, unsigned reg)
+@@ -275,10 +319,10 @@ static void l2c220_op_way(void __iomem *base, unsigned reg)
  {
  	unsigned long flags;
  
@@ -253,7 +254,18 @@ index 808efbb..14baf64 100644
  }
  
  static unsigned long l2c220_op_pa_range(void __iomem *reg, unsigned long start,
-@@ -321,7 +365,7 @@ static void l2c220_inv_range(unsigned long start, unsigned long end)
+@@ -296,8 +340,8 @@ static unsigned long l2c220_op_pa_range(void __iomem *reg, unsigned long start,
+ 		}
+ 
+ 		if (blk_end < end) {
+-			raw_spin_unlock_irqrestore(lock, flags);
+-			raw_spin_lock_irqsave(lock, flags);
++			l2x0_spin_unlock_irqrestore(flags);
++			l2x0_spin_lock_irqsave(flags);
+ 		}
+ 	}
+ 
+@@ -309,7 +353,7 @@ static void l2c220_inv_range(unsigned long start, unsigned long end)
  	void __iomem *base = l2x0_base;
  	unsigned long flags;
  
@@ -262,7 +274,7 @@ index 808efbb..14baf64 100644
  	if ((start | end) & (CACHE_LINE_SIZE - 1)) {
  		if (start & (CACHE_LINE_SIZE - 1)) {
  			start &= ~(CACHE_LINE_SIZE - 1);
-@@ -340,7 +384,7 @@ static void l2c220_inv_range(unsigned long start, unsigned long end)
+@@ -328,7 +372,7 @@ static void l2c220_inv_range(unsigned long start, unsigned long end)
  				   start, end, flags);
  	l2c_wait_mask(base + L2X0_INV_LINE_PA, 1);
  	__l2c220_cache_sync(base);
@@ -271,7 +283,7 @@ index 808efbb..14baf64 100644
  }
  
  static void l2c220_clean_range(unsigned long start, unsigned long end)
-@@ -354,12 +398,12 @@ static void l2c220_clean_range(unsigned long start, unsigned long end)
+@@ -342,12 +386,12 @@ static void l2c220_clean_range(unsigned long start, unsigned long end)
  		return;
  	}
  
@@ -286,7 +298,7 @@ index 808efbb..14baf64 100644
  }
  
  static void l2c220_flush_range(unsigned long start, unsigned long end)
-@@ -373,12 +417,12 @@ static void l2c220_flush_range(unsigned long start, unsigned long end)
+@@ -361,12 +405,12 @@ static void l2c220_flush_range(unsigned long start, unsigned long end)
  		return;
  	}
  
@@ -301,7 +313,7 @@ index 808efbb..14baf64 100644
  }
  
  static void l2c220_flush_all(void)
-@@ -390,9 +434,9 @@ static void l2c220_sync(void)
+@@ -378,9 +422,9 @@ static void l2c220_sync(void)
  {
  	unsigned long flags;
  
@@ -313,15 +325,7 @@ index 808efbb..14baf64 100644
  }
  
  static void l2c220_enable(void __iomem *base, unsigned num_lock)
-@@ -429,6 +473,7 @@ static const struct l2c_init_data l2c220_data = {
- 		.disable = l2c_disable,
- 		.sync = l2c220_sync,
- 		.resume = l2c_resume,
-+		.tz_mutex = l2x0_tz_mutex_cfg,
- 	},
- };
- 
-@@ -484,7 +529,7 @@ static void l2c310_inv_range_erratum(unsigned long start, unsigned long end)
+@@ -472,7 +516,7 @@ static void l2c310_inv_range_erratum(unsigned long start, unsigned long end)
  		unsigned long flags;
  
  		/* Erratum 588369 for both clean+invalidate operations */
@@ -330,7 +334,7 @@ index 808efbb..14baf64 100644
  		l2c_set_debug(base, 0x03);
  
  		if (start & (CACHE_LINE_SIZE - 1)) {
-@@ -501,7 +546,7 @@ static void l2c310_inv_range_erratum(unsigned long start, unsigned long end)
+@@ -489,7 +533,7 @@ static void l2c310_inv_range_erratum(unsigned long start, unsigned long end)
  		}
  
  		l2c_set_debug(base, 0x00);
@@ -339,7 +343,31 @@ index 808efbb..14baf64 100644
  	}
  
  	__l2c210_op_pa_range(base + L2X0_INV_LINE_PA, start, end);
-@@ -540,12 +585,12 @@ static void l2c310_flush_all_erratum(void)
+@@ -502,7 +546,7 @@ static void l2c310_flush_range_erratum(unsigned long start, unsigned long end)
+ 	unsigned long flags;
+ 	void __iomem *base = l2x0_base;
+ 
+-	raw_spin_lock_irqsave(lock, flags);
++	l2x0_spin_lock_irqsave(flags);
+ 	while (start < end) {
+ 		unsigned long blk_end = start + min(end - start, 4096UL);
+ 
+@@ -515,11 +559,11 @@ static void l2c310_flush_range_erratum(unsigned long start, unsigned long end)
+ 		l2c_set_debug(base, 0x00);
+ 
+ 		if (blk_end < end) {
+-			raw_spin_unlock_irqrestore(lock, flags);
+-			raw_spin_lock_irqsave(lock, flags);
++			l2x0_spin_unlock_irqrestore(flags);
++			l2x0_spin_lock_irqsave(flags);
+ 		}
+ 	}
+-	raw_spin_unlock_irqrestore(lock, flags);
++	l2x0_spin_unlock_irqrestore(flags);
+ 	__l2c210_cache_sync(base);
+ }
+ 
+@@ -528,12 +572,12 @@ static void l2c310_flush_all_erratum(void)
  	void __iomem *base = l2x0_base;
  	unsigned long flags;
  
@@ -354,7 +382,7 @@ index 808efbb..14baf64 100644
  }
  
  static void __init l2c310_save(void __iomem *base)
-@@ -786,6 +831,7 @@ static const struct l2c_init_data l2c310_init_fns __initconst = {
+@@ -774,6 +818,7 @@ static const struct l2c_init_data l2c310_init_fns __initconst = {
  		.disable = l2c310_disable,
  		.sync = l2c210_sync,
  		.resume = l2c310_resume,
@@ -362,7 +390,7 @@ index 808efbb..14baf64 100644
  	},
  };
  
-@@ -1112,6 +1158,7 @@ static const struct l2c_init_data of_l2c210_data __initconst = {
+@@ -1100,6 +1145,7 @@ static const struct l2c_init_data of_l2c210_data __initconst = {
  		.disable     = l2c_disable,
  		.sync        = l2c210_sync,
  		.resume      = l2c_resume,
@@ -370,7 +398,7 @@ index 808efbb..14baf64 100644
  	},
  };
  
-@@ -1132,6 +1179,7 @@ static const struct l2c_init_data of_l2c220_data __initconst = {
+@@ -1120,6 +1166,7 @@ static const struct l2c_init_data of_l2c220_data __initconst = {
  		.disable     = l2c_disable,
  		.sync        = l2c220_sync,
  		.resume      = l2c_resume,
@@ -378,7 +406,7 @@ index 808efbb..14baf64 100644
  	},
  };
  
-@@ -1320,6 +1368,7 @@ static const struct l2c_init_data of_l2c310_data __initconst = {
+@@ -1308,6 +1355,7 @@ static const struct l2c_init_data of_l2c310_data __initconst = {
  		.disable     = l2c310_disable,
  		.sync        = l2c210_sync,
  		.resume      = l2c310_resume,
@@ -386,7 +414,7 @@ index 808efbb..14baf64 100644
  	},
  };
  
-@@ -1349,6 +1398,7 @@ static const struct l2c_init_data of_l2c310_coherent_data __initconst = {
+@@ -1337,6 +1385,7 @@ static const struct l2c_init_data of_l2c310_coherent_data __initconst = {
  		.flush_all   = l2c210_flush_all,
  		.disable     = l2c310_disable,
  		.resume      = l2c310_resume,
@@ -394,7 +422,7 @@ index 808efbb..14baf64 100644
  	},
  };
  
-@@ -1395,10 +1445,10 @@ static void aurora_pa_range(unsigned long start, unsigned long end,
+@@ -1383,10 +1432,10 @@ static void aurora_pa_range(unsigned long start, unsigned long end,
  	while (start < end) {
  		range_end = aurora_range_end(start, end);
  
@@ -407,7 +435,7 @@ index 808efbb..14baf64 100644
  
  		writel_relaxed(0, base + AURORA_SYNC_REG);
  		start = range_end;
-@@ -1433,9 +1483,9 @@ static void aurora_flush_all(void)
+@@ -1421,9 +1470,9 @@ static void aurora_flush_all(void)
  	unsigned long flags;
  
  	/* clean all ways */
@@ -419,7 +447,7 @@ index 808efbb..14baf64 100644
  
  	writel_relaxed(0, base + AURORA_SYNC_REG);
  }
-@@ -1450,12 +1500,12 @@ static void aurora_disable(void)
+@@ -1438,12 +1487,12 @@ static void aurora_disable(void)
  	void __iomem *base = l2x0_base;
  	unsigned long flags;
  
@@ -434,7 +462,7 @@ index 808efbb..14baf64 100644
  }
  
  static void aurora_save(void __iomem *base)
-@@ -1528,6 +1578,7 @@ static const struct l2c_init_data of_aurora_with_outer_data __initconst = {
+@@ -1528,6 +1577,7 @@ static const struct l2c_init_data of_aurora_with_outer_data __initconst = {
  		.disable     = aurora_disable,
  		.sync	     = aurora_cache_sync,
  		.resume      = l2c_resume,
@@ -442,7 +470,7 @@ index 808efbb..14baf64 100644
  	},
  };
  
-@@ -1700,6 +1751,7 @@ static const struct l2c_init_data of_bcm_l2x0_data __initconst = {
+@@ -1700,6 +1750,7 @@ static const struct l2c_init_data of_bcm_l2x0_data __initconst = {
  		.disable     = l2c310_disable,
  		.sync        = l2c210_sync,
  		.resume      = l2c310_resume,
@@ -450,176 +478,11 @@ index 808efbb..14baf64 100644
  	},
  };
  
-diff --git a/drivers/clk/clk.c b/drivers/clk/clk.c
-index c8d83ac..674ada0 100644
---- a/drivers/clk/clk.c
-+++ b/drivers/clk/clk.c
-@@ -23,6 +23,7 @@
- #include <linux/init.h>
- #include <linux/sched.h>
- #include <linux/clkdev.h>
-+#include <linux/uaccess.h>
- 
- #include "clk.h"
- 
-@@ -2152,6 +2153,125 @@ static const struct file_operations possible_parents_fops = {
- 	.release	= single_release,
- };
- 
-+/* Debugfs set_rate entry */
-+static int clk_debug_rate_get(void *data, u64 *rate)
-+{
-+	struct clk_core *c = data;
-+
-+	*rate = clk_core_get_rate(c);
-+
-+	return 0;
-+}
-+
-+static int clk_debug_rate_set(void *data, u64 rate)
-+{
-+	struct clk_core *c = data;
-+
-+	return clk_core_set_rate_nolock(c, rate);
-+}
-+
-+DEFINE_SIMPLE_ATTRIBUTE(clk_debug_rate_fops, clk_debug_rate_get,
-+			clk_debug_rate_set, "%lld\n");
-+
-+/* Debugfs prepare_enable entry */
-+static int clk_debug_prep_enable(void *data, u64 count)
-+{
-+	struct clk_core *c = data;
-+	int i, ret = 0;
-+
-+	for (i = 0; i < count; i++) {
-+		ret = clk_core_prepare_enable(c);
-+		if (ret)
-+			return ret;
-+	}
-+
-+	return ret;
-+}
-+
-+DEFINE_SIMPLE_ATTRIBUTE(clk_debug_prep_enable_fops, NULL,
-+			clk_debug_prep_enable, "%lld\n");
-+
-+/* Debugfs disable_unprepare entry */
-+static int clk_debug_disable_unprep(void *data, u64 count)
-+{
-+	struct clk_core *c = data;
-+	int i;
-+
-+	for (i = 0; i < count; i++)
-+		clk_core_disable_unprepare(c);
-+
-+	return 0;
-+}
-+
-+DEFINE_SIMPLE_ATTRIBUTE(clk_debug_disable_unprep_fops, NULL,
-+			clk_debug_disable_unprep, "%lld\n");
-+
-+/* Debugfs set_parent entry */
-+static int clk_debug_parent_get(struct file *file,
-+					char __user *user_buf,
-+					size_t count, loff_t *ppos)
-+{
-+	struct clk_core *p, *c = file->private_data;
-+	int ret;
-+
-+	if (*ppos)		/* continued read */
-+		return 0;
-+
-+	p = c->parent;
-+	count = min(strlen(p->name), count);
-+
-+	ret = copy_to_user(user_buf, p->name, count);
-+	if (ret) {
-+		pr_err("%s: error reading data\n", __func__);
-+		return -EINVAL;
-+	}
-+
-+	/* Add \n */
-+	ret = copy_to_user(user_buf + count, "\n", 1);
-+	if (ret) {
-+		pr_err("%s: error reading data\n", __func__);
-+		return -EINVAL;
-+	}
-+	count++;
-+
-+	*ppos += count;
-+
-+	return count;
-+}
-+
-+static int clk_debug_parent_set(struct file *file,
-+					const char __user *user_buf,
-+					size_t count, loff_t *ppos)
-+{
-+	struct clk_core *p, *c = file->private_data;
-+	char pname[50]; /* 50 char shud be enough for clock name + \0 */
-+	int ret;
-+
-+	count = min(sizeof(pname), count);
-+	strncpy_from_user(pname, user_buf, count);
-+	pname[count - 1] = 0; /* NULL terminate */
-+
-+	p = clk_core_lookup(pname);
-+	if (!p) {
-+			pr_err("%s: %s not found\n", __func__, pname);
-+			return -EINVAL;
-+	}
-+
-+	ret = clk_core_set_parent(c, p);
-+	if (ret) {
-+		pr_err("%s: %s Incorrect Argument\n", __func__, pname);
-+		return -EINVAL;
-+	}
-+
-+	return count;
-+}
-+
-+static const struct file_operations clk_debug_parent_fops = {
-+	.open = simple_open,
-+	.read		= clk_debug_parent_get,
-+	.write		= clk_debug_parent_set,
-+};
-+
- static int clk_debug_create_one(struct clk_core *core, struct dentry *pdentry)
- {
- 	struct dentry *d;
-@@ -2210,6 +2330,26 @@ static int clk_debug_create_one(struct clk_core *core, struct dentry *pdentry)
- 			goto err_out;
- 	}
- 
-+	d = debugfs_create_file("clk_set_rate", S_IRUGO | S_IWUSR, core->dentry,
-+				core, &clk_debug_rate_fops);
-+	if (!d)
-+		goto err_out;
-+
-+	d = debugfs_create_file("clk_set_parent", S_IRUGO | S_IWUSR,
-+				core->dentry, core, &clk_debug_parent_fops);
-+	if (!d)
-+		goto err_out;
-+
-+	d = debugfs_create_file("clk_prepare_enable", S_IWUSR, core->dentry,
-+				core, &clk_debug_prep_enable_fops);
-+	if (!d)
-+		goto err_out;
-+
-+	d = debugfs_create_file("clk_disable_unprepare", S_IWUSR, core->dentry,
-+				core, &clk_debug_disable_unprep_fops);
-+	if (!d)
-+		goto err_out;
-+
- 	if (core->ops->debug_init) {
- 		ret = core->ops->debug_init(core->hw, core->dentry);
- 		if (ret)
 diff --git a/drivers/clocksource/Kconfig b/drivers/clocksource/Kconfig
-index cc60620..ee1675d 100644
+index f35a53ce8..d9ecff161 100644
 --- a/drivers/clocksource/Kconfig
 +++ b/drivers/clocksource/Kconfig
-@@ -389,7 +389,7 @@ config ARM_TIMER_SP804
+@@ -400,7 +400,7 @@ config ARM_TIMER_SP804
  
  config CLKSRC_ARM_GLOBAL_TIMER_SCHED_CLOCK
  	bool
@@ -629,10 +492,10 @@ index cc60620..ee1675d 100644
  	help
  	 Use ARM global timer clock source as sched_clock
 diff --git a/drivers/i2c/busses/i2c-st.c b/drivers/i2c/busses/i2c-st.c
-index 9e62f89..5016913 100644
+index 54e1fc8a4..c0a07e059 100644
 --- a/drivers/i2c/busses/i2c-st.c
 +++ b/drivers/i2c/busses/i2c-st.c
-@@ -273,7 +273,7 @@ static void st_i2c_soft_reset(struct st_i2c_dev *i2c_dev)
+@@ -270,7 +270,7 @@ static void st_i2c_soft_reset(struct st_i2c_dev *i2c_dev)
  static void st_i2c_hw_config(struct st_i2c_dev *i2c_dev)
  {
  	unsigned long rate;
@@ -641,31 +504,25 @@ index 9e62f89..5016913 100644
  	struct st_i2c_timings *t = &i2c_timings[i2c_dev->mode];
  
  	st_i2c_soft_reset(i2c_dev);
-@@ -325,15 +325,19 @@ static void st_i2c_hw_config(struct st_i2c_dev *i2c_dev)
+@@ -322,12 +322,13 @@ static void st_i2c_hw_config(struct st_i2c_dev *i2c_dev)
  
  	/* Prescalers set up */
  	val = rate / 10000000;
 -	writel_relaxed(val, i2c_dev->base + SSC_PRSCALER);
 -	writel_relaxed(val, i2c_dev->base + SSC_PRSCALER_DATAOUT);
-+
 +	prsc = (val > SSC_PRSC_VALUE) ? SSC_PRSC_VALUE : val;
 +	writel_relaxed(prsc, i2c_dev->base + SSC_PRSCALER);
 +	writel_relaxed(prsc, i2c_dev->base + SSC_PRSCALER_DATAOUT);
  
  	/* Noise suppression witdh */
 -	val = i2c_dev->scl_min_width_us * rate / 100000000;
-+	val = i2c_dev->scl_min_width_us * (rate / 1000);
+-	writel_relaxed(val, i2c_dev->base + SSC_NOISE_SUPP_WIDTH);
++	val = i2c_dev->scl_min_width_us * rate / 1000;
 +	val /= (prsc * 10000);
- 	writel_relaxed(val, i2c_dev->base + SSC_NOISE_SUPP_WIDTH);
  
  	/* Noise suppression max output data delay width */
--	val = i2c_dev->sda_min_width_us * rate / 100000000;
-+	val = i2c_dev->sda_min_width_us * (rate / 1000);
-+	val /= (prsc * 10000);
- 	writel_relaxed(val, i2c_dev->base + SSC_NOISE_SUPP_WIDTH_DATAOUT);
- }
- 
-@@ -499,10 +503,30 @@ static void st_i2c_terminate_xfer(struct st_i2c_dev *i2c_dev)
+ 	val = i2c_dev->sda_min_width_us * rate / 100000000;
+@@ -496,10 +497,30 @@ static void st_i2c_terminate_xfer(struct st_i2c_dev *i2c_dev)
  	st_i2c_clr_bits(i2c_dev->base + SSC_IEN, SSC_IEN_TEEN);
  	st_i2c_clr_bits(i2c_dev->base + SSC_I2C, SSC_I2C_STRTG);
  
@@ -697,5 +554,5 @@ index 9e62f89..5016913 100644
  		st_i2c_set_bits(i2c_dev->base + SSC_I2C, SSC_I2C_REPSTRTG);
  	}
 -- 
-2.7.4
+2.17.1
 

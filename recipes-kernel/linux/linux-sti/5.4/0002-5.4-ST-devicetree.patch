@@ -1,20 +1,20 @@
-From ee26e4b63e350c5928dd386cbe83a5cdd62d8ecb Mon Sep 17 00:00:00 2001
+From 797e723fc84ce451e9fef9d8e932010b331d642e Mon Sep 17 00:00:00 2001
 From: Christophe Priouzeau <christophe.priouzeau@st.com>
-Date: Mon, 4 Mar 2019 11:25:17 +0100
-Subject: [PATCH 2/2] 5.0-ST-devicetree
+Date: Fri, 13 Dec 2019 15:31:34 +0100
+Subject: [PATCH 2/2] 5.4-ST-devicetree
 
 ---
- arch/arm/boot/dts/stih407-family.dtsi | 18 ++++++++-
- arch/arm/boot/dts/stih410-b2120.dts   |  5 +++
- arch/arm/boot/dts/stih410-b2260.dts   | 19 ++++++++-
- arch/arm/boot/dts/stih410.dtsi        | 75 +++++++++++++++++++++++++++++++++++
- 4 files changed, 114 insertions(+), 3 deletions(-)
+ arch/arm/boot/dts/stih407-family.dtsi | 18 ++++++-
+ arch/arm/boot/dts/stih410-b2120.dts   |  5 ++
+ arch/arm/boot/dts/stih410-b2260.dts   | 19 ++++++-
+ arch/arm/boot/dts/stih410.dtsi        | 76 +++++++++++++++++++++++++++
+ 4 files changed, 115 insertions(+), 3 deletions(-)
 
 diff --git a/arch/arm/boot/dts/stih407-family.dtsi b/arch/arm/boot/dts/stih407-family.dtsi
-index 9e29a44..812f579 100644
+index 7c36c3726..aed6f9b80 100644
 --- a/arch/arm/boot/dts/stih407-family.dtsi
 +++ b/arch/arm/boot/dts/stih407-family.dtsi
-@@ -53,7 +53,6 @@
+@@ -50,7 +50,6 @@
  			clocks = <&clk_m_a9>;
  			clock-names = "cpu";
  			clock-latency = <100000>;
@@ -22,7 +22,7 @@ index 9e29a44..812f579 100644
  			st,syscfg = <&syscfg_core 0x8e0>;
  		};
  		cpu@1 {
-@@ -999,5 +998,22 @@
+@@ -996,5 +995,22 @@
  				 <&clk_s_c0_flexgen CLK_ST231_DMU>,
  				 <&clk_s_c0_flexgen CLK_FLASH_PROMIP>;
  		};
@@ -46,10 +46,10 @@ index 9e29a44..812f579 100644
  	};
  };
 diff --git a/arch/arm/boot/dts/stih410-b2120.dts b/arch/arm/boot/dts/stih410-b2120.dts
-index 2a5a980..aa86fd1 100644
+index 158b22687..0e966a0f7 100644
 --- a/arch/arm/boot/dts/stih410-b2120.dts
 +++ b/arch/arm/boot/dts/stih410-b2120.dts
-@@ -66,5 +66,10 @@
+@@ -63,5 +63,10 @@
  				status = "okay";
  			};
  		};
@@ -61,10 +61,10 @@ index 2a5a980..aa86fd1 100644
  	};
  };
 diff --git a/arch/arm/boot/dts/stih410-b2260.dts b/arch/arm/boot/dts/stih410-b2260.dts
-index 4ee6d51..760f425 100644
+index 4fbd8e9eb..74c892f92 100644
 --- a/arch/arm/boot/dts/stih410-b2260.dts
 +++ b/arch/arm/boot/dts/stih410-b2260.dts
-@@ -15,7 +15,7 @@
+@@ -12,7 +12,7 @@
  	compatible = "st,stih410-b2260", "st,stih410";
  
  	chosen {
@@ -73,7 +73,7 @@ index 4ee6d51..760f425 100644
  		stdout-path = &uart1;
  	};
  
-@@ -55,6 +55,21 @@
+@@ -52,6 +52,21 @@
  			gpios = <&pio2 5 GPIO_ACTIVE_LOW>;
  			default-state = "off";
  		};
@@ -95,7 +95,7 @@ index 4ee6d51..760f425 100644
  	};
  
  	sound: sound {
-@@ -199,7 +214,7 @@
+@@ -196,7 +211,7 @@
  			/* HDMI V1.3a supports Standard mode only */
  			clock-frequency = <100000>;
  			st,i2c-min-scl-pulse-width-us = <0>;
@@ -105,10 +105,10 @@ index 4ee6d51..760f425 100644
  		};
  
 diff --git a/arch/arm/boot/dts/stih410.dtsi b/arch/arm/boot/dts/stih410.dtsi
-index 888548e..22a4359 100644
+index 6d847019c..8bc8b5244 100644
 --- a/arch/arm/boot/dts/stih410.dtsi
 +++ b/arch/arm/boot/dts/stih410.dtsi
-@@ -15,7 +15,52 @@
+@@ -12,7 +12,52 @@
  		bdisp0 = &bdisp0;
  	};
  
@@ -161,7 +161,15 @@ index 888548e..22a4359 100644
  		usb2_picophy1: phy2@0 {
  			compatible = "st,stih407-usb2-phy";
  			reg = <0 0>;
-@@ -299,5 +344,35 @@
+@@ -282,6 +327,7 @@
+ 			clocks = <&clk_s_c0_flexgen CLK_VID_DMU>,
+ 				 <&clk_s_c0_flexgen CLK_ST231_DMU>,
+ 				 <&clk_s_c0_flexgen CLK_FLASH_PROMIP>;
++			status = "disabled";
+ 		};
+ 
+ 		sti-cec@94a087c {
+@@ -296,5 +342,35 @@
  			resets = <&softreset STIH407_LPM_SOFTRESET>;
  			hdmi-phandle = <&sti_hdmi>;
  		};
@@ -179,18 +187,18 @@ index 888548e..22a4359 100644
 +					  <GIC_SPI 47 IRQ_TYPE_LEVEL_HIGH>,
 +					  <GIC_SPI 44 IRQ_TYPE_LEVEL_HIGH>,
 +					  <GIC_SPI 48 IRQ_TYPE_LEVEL_HIGH>;
-+			interrupt-names = "IRQGP",
-+					  "IRQGPMMU",
-+					  "IRQPP0",
-+					  "IRQPPMMU0",
-+					  "IRQPP1",
-+					  "IRQPPMMU1",
-+					  "IRQPP2",
-+					  "IRQPPMMU2",
-+					  "IRQPP3",
-+					  "IRQPPMMU3";
-+			clock-names	= "gpu-clk";
-+			clocks		= <&clk_s_c0_flexgen CLK_ICN_GPU>;
++			interrupt-names = "gp",
++					  "gpmmu",
++					  "pp0",
++					  "ppmmu0",
++					  "pp1",
++					  "ppmmu1",
++					  "pp2",
++					  "ppmmu2",
++					  "pp3",
++					  "ppmmu3";
++			clock-names	= "bus", "core";
++			clocks		= <&clk_s_c0_flexgen CLK_ICN_GPU>, <&clk_s_c0_flexgen CLK_ICN_GPU>;
 +			reset-names	= "gpu";
 +			resets		= <&softreset STIH407_GPU_SOFTRESET>;
 +		};
@@ -198,5 +206,5 @@ index 888548e..22a4359 100644
  	};
  };
 -- 
-2.7.4
+2.17.1
 

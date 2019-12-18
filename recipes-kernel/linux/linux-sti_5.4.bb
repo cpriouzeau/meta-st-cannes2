@@ -4,18 +4,18 @@ include recipes-kernel/linux/linux-st.inc
 LICENSE = "GPLv2"
 LIC_FILES_CHKSUM = "file://COPYING;md5=bbea815ee2795b2f4230826c0c6b8814"
 
-SRC_URI = "https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-5.0.tar.xz;name=kernel"
-SRC_URI[kernel.md5sum] = "7381ce8aac80a01448e065ce795c19c0"
-SRC_URI[kernel.sha256sum] = "437b141a6499159f5a7282d5eb4b2be055f8e862ccce44d7464e8759c31a2e43"
+SRC_URI = "https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-5.4.3.tar.xz;name=kernel"
+SRC_URI[kernel.md5sum] = "d4aa766f1d02e89e599428032d0925e9"
+SRC_URI[kernel.sha256sum] = "6731682f32e1b1ee53b0e7f66b8dc263d25a0e809e78e2139cb0ed77c378ee51"
 
 SRC_URI_append_stih410-b2260 = " \
-    file://0001-5.0-ST-misc.patch \
-    file://0002-5.0-ST-devicetree.patch \
+    file://0001-5.4-ST-misc.patch \
+    file://0002-5.4-ST-devicetree.patch \
 "
 
-S = "${WORKDIR}/linux-5.0"
+S = "${WORKDIR}/linux-5.4.3"
 
-LINUX_VERSION = "5.0"
+LINUX_VERSION = "5.4"
 
 PR = "r0"
 PV = "${LINUX_VERSION}"
